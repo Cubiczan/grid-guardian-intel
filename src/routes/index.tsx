@@ -1570,12 +1570,12 @@ function AttackEvidenceDialog({
               </div>
             ) : (
             <div className="flex flex-wrap gap-1">
-              {idHitVisible && (
+              {sortMode === "type" && idHitVisible && (
                 <span className="rounded border border-destructive/60 bg-destructive/15 px-1.5 py-0.5 font-mono text-[10px] text-destructive">
                   ID reference: {technique.techniqueId}
                 </span>
               )}
-              {visibleKeywords.map((k) => (
+              {sortMode === "type" && visibleKeywords.map((k) => (
                   <span
                     key={k}
                     className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-foreground"
@@ -1583,12 +1583,26 @@ function AttackEvidenceDialog({
                     “{k}”
                   </span>
                 ))}
-              {visibleActors.map((k) => (
+              {sortMode === "type" && visibleActors.map((k) => (
                 <span
                   key={k}
                   className="rounded border border-chart-3/50 bg-chart-3/10 px-1.5 py-0.5 font-mono text-[10px] text-chart-3"
                 >
                   actor: {k.replace(/^actor:/, "")}
+                </span>
+              ))}
+              {sortMode !== "type" && unifiedSignals.map((s) => (
+                <span
+                  key={s.key}
+                  className={
+                    s.kind === "id"
+                      ? "rounded border border-destructive/60 bg-destructive/15 px-1.5 py-0.5 font-mono text-[10px] text-destructive"
+                      : s.kind === "actor"
+                        ? "rounded border border-chart-3/50 bg-chart-3/10 px-1.5 py-0.5 font-mono text-[10px] text-chart-3"
+                        : "rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-foreground"
+                  }
+                >
+                  {s.label}
                 </span>
               ))}
             </div>
@@ -1611,7 +1625,7 @@ function AttackEvidenceDialog({
               </div>
             ) : (
               <ul className="space-y-2">
-                {visibleSnippets.map((s, i) => (
+                {orderedSnippets.map((s, i) => (
                   <li key={i} className="rounded border border-border bg-background/60 p-2 text-xs leading-relaxed">
                     <div className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                       matched: “{s.keyword.replace(/^actor:/, "actor:")}”
