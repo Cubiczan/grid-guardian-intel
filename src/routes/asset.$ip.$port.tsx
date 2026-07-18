@@ -509,6 +509,17 @@ function SharedEvidenceDialogInner({
               type="button"
               onClick={() => {
                 const ev = buildTechniqueEvidence(technique, brief);
+                downloadCsv(`${ev.filenameBase}_snippets.csv`, ev.snippetsCsv);
+              }}
+              className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] uppercase tracking-widest hover:bg-accent"
+              title="Download source snippets with technique/tactic linkage and timestamps"
+            >
+              <Download size={10} /> Snippets CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const ev = buildTechniqueEvidence(technique, brief);
                 downloadMarkdown(`${ev.filenameBase}.md`, ev.markdown);
               }}
               className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] uppercase tracking-widest hover:bg-accent"
