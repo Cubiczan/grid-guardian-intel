@@ -854,6 +854,7 @@ const RANGE_PRESETS: { key: string; label: string; ms: number | null }[] = [
 function AttackHeatmap({ briefs }: { briefs: Record<string, ThreatBrief> }) {
   const [rangeKey, setRangeKey] = useState<string>("24h");
   const [matrixFilter, setMatrixFilter] = useState<"all" | "ics" | "enterprise">("all");
+  const [drill, setDrill] = useState<{ tacticId: string; focusTechnique?: string } | null>(null);
 
   const stats = useMemo(() => {
     const range = RANGE_PRESETS.find((r) => r.key === rangeKey) ?? RANGE_PRESETS[1];
@@ -871,6 +872,7 @@ function AttackHeatmap({ briefs }: { briefs: Record<string, ThreatBrief> }) {
       count: number; // technique occurrences
       briefs: Set<string>; // asset ids
       techniques: Map<string, { name: string; matrix: "ics" | "enterprise"; count: number; url: string }>;
+      contributions: Contribution[];
     };
     const tactics = new Map<string, TacticStat>();
     let totalTechHits = 0;
@@ -884,6 +886,7 @@ function AttackHeatmap({ briefs }: { briefs: Record<string, ThreatBrief> }) {
           count: 0,
           briefs: new Set<string>(),
           techniques: new Map(),
+          contributions: [] as Contribution[],
         };
         cur.count++;
         cur.briefs.add(b.asset.id);
@@ -895,6 +898,7 @@ function AttackHeatmap({ briefs }: { briefs: Record<string, ThreatBrief> }) {
         };
         tk.count++;
         cur.techniques.set(a.techniqueId, tk);
+        cur.contributions.push({ brief: b, mapping: a });
         tactics.set(a.tacticId, cur);
       }
     }
@@ -902,6 +906,8 @@ function AttackHeatmap({ briefs }: { briefs: Record<string, ThreatBrief> }) {
     const max = sorted[0]?.count ?? 0;
     return { rows: sorted, max, totalBriefs: inRange.length, totalTechHits };
   }, [briefs, rangeKey, matrixFilter]);
+
+  const activeTactic = drill ? stats.rows.find((r) => r.tacticId === drill.tacticId) : undefined;
 
   return (
     <div className="mt-6 rounded-lg border border-border bg-card p-4">
@@ -956,7 +962,12 @@ function AttackHeatmap({ briefs }: { briefs: Record<string, ThreatBrief> }) {
             const intensity = 0.15 + 0.65 * (t.count / stats.max);
             return (
               <li key={t.tacticId} className="rounded-md border border-border/60 bg-background/40 p-2">
-                <div className="flex items-baseline gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setDrill({ tacticId: t.tacticId })}
+                  title="View contributing briefs, techniques and timestamps"
+                  className="flex w-full items-baseline gap-2 rounded text-left text-xs hover:bg-accent/40"
+                >
                   <span className="w-40 shrink-0 font-semibold text-foreground">
                     {t.tacticName}
                   </span>
@@ -978,26 +989,25 @@ function AttackHeatmap({ briefs }: { briefs: Record<string, ThreatBrief> }) {
                   >
                     {t.briefs.size} asset{t.briefs.size === 1 ? "" : "s"}
                   </span>
-                </div>
+                </button>
                 <div className="mt-1.5 flex flex-wrap gap-1 pl-40">
                   {top.map((tk) => {
                     const [id, ] = Array.from(t.techniques.entries()).find(([, v]) => v === tk) ?? [];
                     return (
-                      <a
+                      <button
                         key={id}
-                        href={tk.url}
-                        target="_blank"
-                        rel="noreferrer"
+                        type="button"
+                        onClick={() => setDrill({ tacticId: t.tacticId, focusTechnique: id })}
                         className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] hover:bg-accent ${
                           tk.matrix === "ics"
                             ? "border-chart-4/40 bg-chart-4/10 text-chart-4"
                             : "border-primary/40 bg-primary/10 text-primary"
                         }`}
-                        title={`${tk.name} — ${tk.count} hit${tk.count === 1 ? "" : "s"}`}
+                        title={`Drill down: ${tk.name} — ${tk.count} hit${tk.count === 1 ? "" : "s"}`}
                       >
                         <span className="font-semibold">{id}</span>
                         <span className="text-foreground/80">×{tk.count}</span>
-                      </a>
+                      </button>
                     );
                   })}
                 </div>
@@ -1006,8 +1016,206 @@ function AttackHeatmap({ briefs }: { briefs: Record<string, ThreatBrief> }) {
           })}
         </ul>
       )}
+      <TacticDrilldownDialog
+        tactic={activeTactic ?? null}
+        focusTechnique={drill?.focusTechnique}
+        onClose={() => setDrill(null)}
+      />
     </div>
   );
+}
+
+type Contribution = { brief: ThreatBrief; mapping: AttackMapping };
+
+function TacticDrilldownDialog({
+  tactic,
+  focusTechnique,
+  onClose,
+}: {
+  tactic:
+    | {
+        tacticId: string;
+        tacticName: string;
+        count: number;
+        briefs: Set<string>;
+        techniques: Map<string, { name: string; matrix: "ics" | "enterprise"; count: number; url: string }>;
+        contributions: Contribution[];
+      }
+    | null;
+  focusTechnique?: string;
+  onClose: () => void;
+}) {
+  const open = tactic !== null;
+  if (!tactic) {
+    return (
+      <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+        <DialogContent />
+      </Dialog>
+    );
+  }
+  // Group contributions by technique, sorted by frequency then newest.
+  const grouped = new Map<string, Contribution[]>();
+  for (const c of tactic.contributions) {
+    const arr = grouped.get(c.mapping.techniqueId) ?? [];
+    arr.push(c);
+    grouped.set(c.mapping.techniqueId, arr);
+  }
+  const groupOrder = Array.from(grouped.entries()).sort((a, b) => {
+    if (focusTechnique) {
+      if (a[0] === focusTechnique) return -1;
+      if (b[0] === focusTechnique) return 1;
+    }
+    return b[1].length - a[1].length;
+  });
+  for (const [, arr] of groupOrder) {
+    arr.sort(
+      (a, b) => Date.parse(b.brief.generatedAt) - Date.parse(a.brief.generatedAt),
+    );
+  }
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="font-mono">
+            {tactic.tacticName} · {tactic.tacticId}
+          </DialogTitle>
+          <DialogDescription>
+            {tactic.count} technique hit{tactic.count === 1 ? "" : "s"} across{" "}
+            {tactic.briefs.size} asset{tactic.briefs.size === 1 ? "" : "s"} ·{" "}
+            {grouped.size} distinct technique{grouped.size === 1 ? "" : "s"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {groupOrder.map(([techniqueId, contribs]) => {
+            const first = contribs[0].mapping;
+            return (
+              <section
+                key={techniqueId}
+                className={`rounded-md border p-3 ${
+                  focusTechnique === techniqueId
+                    ? "border-primary/60 bg-primary/5"
+                    : "border-border bg-background/40"
+                }`}
+              >
+                <div className="mb-2 flex flex-wrap items-baseline gap-2">
+                  <span
+                    className={`rounded border px-1.5 py-0.5 font-mono text-[11px] font-semibold ${
+                      first.matrix === "ics"
+                        ? "border-chart-4/40 bg-chart-4/10 text-chart-4"
+                        : "border-primary/40 bg-primary/10 text-primary"
+                    }`}
+                  >
+                    {techniqueId}
+                  </span>
+                  <span className="text-sm font-semibold text-foreground">{first.techniqueName}</span>
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    {contribs.length} hit{contribs.length === 1 ? "" : "s"}
+                  </span>
+                  <a
+                    href={first.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-auto inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+                  >
+                    attack.mitre.org <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+                <ul className="space-y-2">
+                  {contribs.map((c, i) => {
+                    const conf = scoreAttack(c.mapping);
+                    const snippets = extractSnippets(c.brief.summary, c.mapping.matched, {
+                      radius: 100,
+                      maxPerKeyword: 1,
+                    });
+                    return (
+                      <li
+                        key={`${c.brief.asset.id}:${i}`}
+                        className="rounded border border-border/70 bg-background/70 p-2 text-xs"
+                      >
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                          <Link
+                            to="/asset/$ip/$port"
+                            params={{
+                              ip: c.brief.asset.ip,
+                              port: String(c.brief.asset.port),
+                            }}
+                            className="font-mono text-foreground hover:underline"
+                          >
+                            {c.brief.asset.id}
+                          </Link>
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            {c.brief.asset.org} · {c.brief.asset.location}
+                          </span>
+                          <span
+                            className={`rounded-sm border px-1 py-[1px] font-mono text-[10px] ${bandStyleFor(conf.band)}`}
+                            title={conf.factors.join(" · ")}
+                          >
+                            {conf.score}%
+                          </span>
+                          <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                            <time dateTime={c.brief.generatedAt} title={c.brief.generatedAt}>
+                              {formatRelative(c.brief.generatedAt)}
+                            </time>
+                          </span>
+                        </div>
+                        {c.mapping.matched.length > 0 && (
+                          <div className="mb-1 flex flex-wrap gap-1">
+                            {c.mapping.matched.slice(0, 8).map((k) => (
+                              <span
+                                key={k}
+                                className="rounded border border-border bg-muted/40 px-1 py-[1px] font-mono text-[10px] text-foreground"
+                              >
+                                {k.startsWith("actor:") ? `actor:${k.slice(6)}` : `“${k}”`}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {snippets.length > 0 ? (
+                          <ul className="space-y-1">
+                            {snippets.slice(0, 3).map((s, j) => (
+                              <li
+                                key={j}
+                                className="rounded border border-border/60 bg-background/60 p-1.5 text-[11px] leading-relaxed"
+                              >
+                                <HighlightedSnippet
+                                  text={s.snippet}
+                                  keyword={s.keyword.replace(/^actor:/, "")}
+                                />
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="text-[11px] italic text-muted-foreground">
+                            No direct quote — inferred from technique ID or actor mapping.
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function formatRelative(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const diff = Date.now() - t;
+  const abs = Math.abs(diff);
+  const m = Math.round(abs / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return new Date(t).toISOString().slice(0, 10);
 }
 
 function bandStyleFor(band: "high" | "medium" | "low"): string {
