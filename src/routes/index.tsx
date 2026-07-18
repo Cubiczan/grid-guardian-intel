@@ -9,10 +9,10 @@ import {
   type OsintAsset,
 } from "@/lib/sentinel.functions";
 
-const assetsQuery = (query?: string) =>
+const assetsQuery = (query?: string, cursor?: string) =>
   queryOptions({
-    queryKey: ["sentinel", "assets", query ?? ""],
-    queryFn: () => listExposedAssets({ data: { query } }),
+    queryKey: ["sentinel", "assets", query ?? "", cursor ?? ""],
+    queryFn: () => listExposedAssets({ data: { query, cursor } }),
   });
 
 export const Route = createFileRoute("/")({
@@ -41,8 +41,15 @@ export const Route = createFileRoute("/")({
 function SentinelDashboard() {
   const [query, setQuery] = useState<string>("");
   const [activeQuery, setActiveQuery] = useState<string>("");
-  const { data: feed, isFetching, refetch } = useSuspenseQuery(assetsQuery(activeQuery));
+  // Stack of cursors; index 0 = undefined (first page). Length - 1 is current page.
+  const [cursorStack, setCursorStack] = useState<(string | undefined)[]>([undefined]);
+  const currentCursor = cursorStack[cursorStack.length - 1];
+  const pageIndex = cursorStack.length - 1;
+  const { data: feed, isFetching, refetch } = useSuspenseQuery(
+    assetsQuery(activeQuery, currentCursor),
+  );
   const analyzeFn = useServerFn(analyzeAsset);
+  // Briefs are keyed by asset.id (ip:port), so mapping survives across pages.
   const [briefs, setBriefs] = useState<Record<string, ThreatBrief>>({});
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -53,6 +60,14 @@ function SentinelDashboard() {
       setSelected(brief.asset.id);
     },
   });
+
+  const resetPagination = () => setCursorStack([undefined]);
+  const goNext = () => {
+    if (feed.nextCursor) setCursorStack((s) => [...s, feed.nextCursor]);
+  };
+  const goPrev = () => {
+    if (cursorStack.length > 1) setCursorStack((s) => s.slice(0, -1));
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -95,13 +110,17 @@ function SentinelDashboard() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") setActiveQuery(query);
+                  if (e.key === "Enter") {
+                    resetPagination();
+                    setActiveQuery(query);
+                  }
                 }}
                 placeholder="Censys query (e.g. services.port: 502)"
                 className="w-72 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs"
               />
               <button
                 onClick={() => {
+                  resetPagination();
                   setActiveQuery(query);
                   refetch();
                 }}
@@ -142,6 +161,28 @@ function SentinelDashboard() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs">
+            <span className="font-mono text-muted-foreground">
+              Page {pageIndex + 1} · {feed.assets.length} rows ·{" "}
+              {Object.keys(briefs).length} briefs cached
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={goPrev}
+                disabled={pageIndex === 0 || isFetching}
+                className="rounded-md border border-border bg-background px-3 py-1.5 font-medium hover:bg-accent disabled:opacity-40"
+              >
+                ← Prev
+              </button>
+              <button
+                onClick={goNext}
+                disabled={!feed.nextCursor || isFetching}
+                className="rounded-md border border-border bg-background px-3 py-1.5 font-medium hover:bg-accent disabled:opacity-40"
+              >
+                {isFetching ? "Loading…" : "Next →"}
+              </button>
+            </div>
           </div>
         </section>
 
