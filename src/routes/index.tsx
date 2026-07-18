@@ -4,6 +4,14 @@ import { queryOptions, useSuspenseQuery, useMutation, useQuery } from "@tanstack
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Star, ArrowUpDown, ExternalLink, Bell, Download, Radar } from "lucide-react";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   listExposedAssets,
   analyzeAsset,
   getReconToolkit,
