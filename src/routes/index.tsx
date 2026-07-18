@@ -1145,7 +1145,7 @@ function TacticDrilldownDialog({
                             {c.brief.asset.id}
                           </Link>
                           <span className="font-mono text-[10px] text-muted-foreground">
-                            {c.brief.asset.org} · {c.brief.asset.location.state ?? "??"}
+                            {c.brief.asset.org} · {c.brief.asset.location}
                           </span>
                           <span
                             className={`rounded-sm border px-1 py-[1px] font-mono text-[10px] ${bandStyleFor(conf.band)}`}
