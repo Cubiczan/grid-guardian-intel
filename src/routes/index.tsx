@@ -1613,11 +1613,13 @@ function EvidenceExportButtons({
   technique: AttackMapping;
   brief: ThreatBrief | undefined;
 }) {
-  const doExport = (kind: "json" | "pdf" | "md" | "csv") => {
+  const doExport = (kind: "json" | "pdf" | "md" | "csv" | "snippets-csv") => {
     const ev = buildTechniqueEvidence(technique, brief);
     if (kind === "json") downloadJson(`${ev.filenameBase}.json`, ev.json);
     else if (kind === "md") downloadMarkdown(`${ev.filenameBase}.md`, ev.markdown);
     else if (kind === "csv") downloadCsv(`${ev.filenameBase}_signals.csv`, ev.signalsCsv);
+    else if (kind === "snippets-csv")
+      downloadCsv(`${ev.filenameBase}_snippets.csv`, ev.snippetsCsv);
     else openPrintWindow(ev.title, ev.markdown);
   };
   return (
@@ -1640,6 +1642,14 @@ function EvidenceExportButtons({
         title="Download matched signals (IDs, keywords, actors) with timestamps as CSV"
       >
         <Download size={10} /> CSV
+      </button>
+      <button
+        type="button"
+        onClick={() => doExport("snippets-csv")}
+        className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] uppercase tracking-widest hover:bg-accent"
+        title="Download source snippets (one row per extracted quote) with technique/tactic linkage and timestamps"
+      >
+        <Download size={10} /> Snippets CSV
       </button>
       <button
         type="button"
