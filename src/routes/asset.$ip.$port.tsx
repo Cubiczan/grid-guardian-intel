@@ -18,8 +18,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Download } from "lucide-react";
 import { loadBriefs, saveBrief } from "@/lib/sentinel-storage";
+import {
+  buildTechniqueEvidence,
+  downloadJson,
+  downloadMarkdown,
+  openPrintWindow,
+} from "@/lib/sentinel-report";
 
 type Search = {
   protocol?: string;
@@ -286,6 +292,41 @@ function SharedEvidenceDialog({
           </section>
         </div>
         <DialogFooter>
+          <div className="mr-auto flex flex-wrap items-center gap-1">
+            <span className="mr-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Export evidence:
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const ev = buildTechniqueEvidence(technique, brief);
+                downloadJson(`${ev.filenameBase}.json`, ev.json);
+              }}
+              className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] uppercase tracking-widest hover:bg-accent"
+            >
+              <Download size={10} /> JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const ev = buildTechniqueEvidence(technique, brief);
+                downloadMarkdown(`${ev.filenameBase}.md`, ev.markdown);
+              }}
+              className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] uppercase tracking-widest hover:bg-accent"
+            >
+              <Download size={10} /> MD
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const ev = buildTechniqueEvidence(technique, brief);
+                openPrintWindow(ev.title, ev.markdown);
+              }}
+              className="inline-flex items-center gap-1 rounded border border-primary/60 bg-primary/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-primary hover:bg-primary/20"
+            >
+              <Download size={10} /> PDF
+            </button>
+          </div>
           <a
             href={technique.url}
             target="_blank"
