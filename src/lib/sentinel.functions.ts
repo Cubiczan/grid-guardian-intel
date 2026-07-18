@@ -9,15 +9,16 @@ export type OsintAsset = {
   org: string;
   sector: string;
   province?: string; // US state — used for the geo heatmap
+  lat?: number;
+  lon?: number;
 };
 
 const MOCK_ASSETS: OsintAsset[] = [
-  { id: "a1", ip: "203.0.113.42", port: 502, protocol: "Modbus", location: "Eastern Europe", org: "National Power Grid Authority", sector: "Energy" },
-  { id: "a2", ip: "198.51.100.17", port: 102, protocol: "Siemens S7", location: "Germany", org: "Rhein Water Works", sector: "Water Treatment" },
-  { id: "a3", ip: "192.0.2.88", port: 44818, protocol: "EtherNet/IP", location: "Texas, USA", org: "Lone Star Refining", sector: "Oil & Gas" },
-  { id: "a4", ip: "203.0.113.201", port: 20000, protocol: "DNP3", location: "Ukraine", org: "Kyiv Regional Substation", sector: "Energy" },
-  { id: "a5", ip: "198.51.100.66", port: 2404, protocol: "IEC-104", location: "Taiwan", org: "Taipei Telecom Backbone", sector: "Telecommunications" },
-  { id: "a6", ip: "192.0.2.144", port: 1911, protocol: "Niagara Fox", location: "Saudi Arabia", org: "Riyadh Municipal SCADA", sector: "Utilities" },
+  { id: "a3", ip: "192.0.2.88", port: 44818, protocol: "EtherNet/IP", location: "Houston, Texas, USA", org: "Lone Star Refining", sector: "Oil & Gas", province: "Texas", lat: 29.76, lon: -95.37 },
+  { id: "a7", ip: "192.0.2.10", port: 502, protocol: "Modbus", location: "Detroit, Michigan, USA", org: "Great Lakes Power Co-op", sector: "Energy", province: "Michigan", lat: 42.33, lon: -83.05 },
+  { id: "a8", ip: "192.0.2.22", port: 102, protocol: "Siemens S7", location: "San Diego, California, USA", org: "SoCal Water District", sector: "Water Treatment", province: "California", lat: 32.72, lon: -117.16 },
+  { id: "a9", ip: "192.0.2.33", port: 20000, protocol: "DNP3", location: "Buffalo, New York, USA", org: "Niagara Grid Operator", sector: "Energy", province: "New York", lat: 42.89, lon: -78.87 },
+  { id: "a10", ip: "192.0.2.44", port: 2404, protocol: "IEC-104", location: "Seattle, Washington, USA", org: "Puget Sound Utilities", sector: "Utilities", province: "Washington", lat: 47.61, lon: -122.33 },
 ];
 
 export type ThreatBrief = {
