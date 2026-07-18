@@ -1163,7 +1163,12 @@ function AssetRow({
   brief?: ThreatBrief;
   selected: boolean;
   loading: boolean;
-  bulk?: "queued" | "running" | "done" | "error";
+  bulk?:
+    | { status: "queued" }
+    | { status: "running"; attempt: number }
+    | { status: "retrying"; attempt: number; nextInMs: number; lastError: string }
+    | { status: "done" }
+    | { status: "error"; attempts: number; reason: string };
   watched: boolean;
   kevCount: number;
   columns: Record<ColumnKey, boolean>;
@@ -1223,8 +1228,35 @@ function AssetRow({
               brief?.priority,
             )}`}
           >
-            {brief?.priority ?? (bulk === "queued" ? "QUEUED" : bulk === "running" ? "RUNNING…" : bulk === "error" ? "ERROR" : "UNSCORED")}
+            {brief?.priority ??
+              (bulk?.status === "queued"
+                ? "QUEUED"
+                : bulk?.status === "running"
+                  ? bulk.attempt > 1
+                    ? `RUNNING… (try ${bulk.attempt})`
+                    : "RUNNING…"
+                  : bulk?.status === "retrying"
+                    ? `RETRY in ${Math.round(bulk.nextInMs / 100) / 10}s`
+                    : bulk?.status === "error"
+                      ? "ERROR"
+                      : "UNSCORED")}
           </span>
+          {bulk?.status === "error" && (
+            <div
+              className="mt-1 max-w-[220px] truncate font-mono text-[10px] text-destructive"
+              title={`Failed after ${bulk.attempts} attempts: ${bulk.reason}`}
+            >
+              {bulk.reason}
+            </div>
+          )}
+          {bulk?.status === "retrying" && (
+            <div
+              className="mt-1 max-w-[220px] truncate font-mono text-[10px] text-muted-foreground"
+              title={bulk.lastError}
+            >
+              attempt {bulk.attempt} failed — retrying
+            </div>
+          )}
         </td>
       )}
       {columns.analyzed && (
