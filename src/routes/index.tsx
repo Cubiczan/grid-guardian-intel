@@ -1347,6 +1347,8 @@ function AttackEvidenceDialog({
     if (next.has(val)) next.delete(val); else next.add(val);
     setter(next);
   };
+  type SortMode = "type" | "confidence" | "recent";
+  const [sortMode, setSortMode] = useState<SortMode>("type");
   const bandGated = !bandSet.has(conf.band as Band);
   const briefAgeMs = brief?.generatedAt
     ? Date.now() - new Date(brief.generatedAt).getTime()
@@ -1360,15 +1362,43 @@ function AttackEvidenceDialog({
     : kw.toLowerCase() === technique.techniqueId.toLowerCase() ? "id"
     : "keyword";
 
+  const summaryLc = (brief?.summary ?? "").toLowerCase();
+  const sigMeta = (k: string) => {
+    const kind = snippetKind(k);
+    const weight = kind === "id" ? 3 : kind === "actor" ? 2 : 1;
+    const needle = (k.startsWith("actor:") ? k.slice(6) : k).toLowerCase();
+    let count = 0, last = -1, idx = 0;
+    while (needle && (idx = summaryLc.indexOf(needle, idx)) !== -1) {
+      count++; last = idx; idx += needle.length;
+    }
+    return { kind, weight, count, last };
+  };
+  const signalCmp = (a: string, b: string) => {
+    const A = sigMeta(a), B = sigMeta(b);
+    if (sortMode === "confidence") return B.weight - A.weight || B.count - A.count;
+    if (sortMode === "recent") return B.last - A.last || B.weight - A.weight;
+    return 0;
+  };
+  const snippetPos = (s: { snippet: string }) =>
+    summaryLc.indexOf(s.snippet.slice(0, 40).toLowerCase().replace(/^…\s*/, ""));
+  const snippetCmp = (a: { keyword: string; snippet: string }, b: { keyword: string; snippet: string }) => {
+    if (sortMode === "confidence") {
+      const wA = sigMeta(a.keyword).weight, wB = sigMeta(b.keyword).weight;
+      return wB - wA;
+    }
+    if (sortMode === "recent") return snippetPos(b) - snippetPos(a);
+    return 0;
+  };
+
   const idHitVisible =
     !facetGated && idHit && typeSet.has("id") &&
     (matchStr(technique.techniqueId) || matchStr("id reference"));
   const visibleKeywords = facetGated || !typeSet.has("keyword")
     ? []
-    : keywordMatches.filter(matchStr);
+    : keywordMatches.filter(matchStr).sort(signalCmp);
   const visibleActors = facetGated || !typeSet.has("actor")
     ? []
-    : actorMatches.filter((k) => matchStr(k.replace(/^actor:/, "")));
+    : actorMatches.filter((k) => matchStr(k.replace(/^actor:/, ""))).sort(signalCmp);
   const visibleSnippets = facetGated
     ? []
     : snippets.filter(
@@ -1376,6 +1406,23 @@ function AttackEvidenceDialog({
           typeSet.has(snippetKind(s.keyword)) &&
           (matchStr(s.snippet) || matchStr(s.keyword.replace(/^actor:/, ""))),
       );
+  const orderedSnippets =
+    sortMode === "type" ? visibleSnippets : [...visibleSnippets].sort(snippetCmp);
+  const unifiedSignals: { key: string; kind: SrcType; label: string }[] =
+    sortMode === "type"
+      ? []
+      : [
+          ...(idHitVisible
+            ? [{ key: `id:${technique.techniqueId}`, kind: "id" as SrcType, label: `ID reference: ${technique.techniqueId}` }]
+            : []),
+          ...visibleKeywords.map((k) => ({ key: `kw:${k}`, kind: "keyword" as SrcType, label: `“${k}”` })),
+          ...visibleActors.map((k) => ({ key: `ac:${k}`, kind: "actor" as SrcType, label: `actor: ${k.replace(/^actor:/, "")}` })),
+        ].sort((a, b) =>
+          signalCmp(
+            a.kind === "id" ? technique.techniqueId : a.kind === "actor" ? `actor:${a.label.replace(/^actor:\s*/, "")}` : a.label.replace(/^“|”$/g, ""),
+            b.kind === "id" ? technique.techniqueId : b.kind === "actor" ? `actor:${b.label.replace(/^actor:\s*/, "")}` : b.label.replace(/^“|”$/g, ""),
+          ),
+        );
   const visibleSourceCount =
     (idHitVisible ? 1 : 0) + visibleKeywords.length + visibleActors.length;
   const anyFacetActive =
