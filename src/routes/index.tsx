@@ -1282,17 +1282,58 @@ function AttackEvidenceDialog({
   const [filter, setFilter] = useState("");
   const q = filter.trim().toLowerCase();
   const matchStr = (s: string) => !q || s.toLowerCase().includes(q);
-  const idHitVisible = idHit && (matchStr(technique.techniqueId) || matchStr("id reference"));
   const keywordMatches = technique.matched.filter(
     (k) => k.toLowerCase() !== technique.techniqueId.toLowerCase() && !k.startsWith("actor:"),
   );
-  const visibleKeywords = keywordMatches.filter(matchStr);
-  const visibleActors = actorMatches.filter((k) => matchStr(k.replace(/^actor:/, "")));
-  const visibleSnippets = snippets.filter(
-    (s) => matchStr(s.snippet) || matchStr(s.keyword.replace(/^actor:/, "")),
+
+  // ─── Facets: source type, confidence band, relative age ──
+  type SrcType = "id" | "keyword" | "actor";
+  type Band = "high" | "medium" | "low";
+  const [typeSet, setTypeSet] = useState<Set<SrcType>>(
+    () => new Set<SrcType>(["id", "keyword", "actor"]),
   );
+  const [bandSet, setBandSet] = useState<Set<Band>>(
+    () => new Set<Band>(["high", "medium", "low"]),
+  );
+  const [rangeMs, setRangeMs] = useState<number | null>(null);
+  const toggle = <T,>(set: Set<T>, val: T, setter: (s: Set<T>) => void) => {
+    const next = new Set(set);
+    if (next.has(val)) next.delete(val); else next.add(val);
+    setter(next);
+  };
+  const bandGated = !bandSet.has(conf.band as Band);
+  const briefAgeMs = brief?.generatedAt
+    ? Date.now() - new Date(brief.generatedAt).getTime()
+    : null;
+  const rangeGated =
+    rangeMs !== null && (briefAgeMs === null || briefAgeMs > rangeMs);
+  const facetGated = bandGated || rangeGated;
+
+  const snippetKind = (kw: string): SrcType =>
+    kw.startsWith("actor:") ? "actor"
+    : kw.toLowerCase() === technique.techniqueId.toLowerCase() ? "id"
+    : "keyword";
+
+  const idHitVisible =
+    !facetGated && idHit && typeSet.has("id") &&
+    (matchStr(technique.techniqueId) || matchStr("id reference"));
+  const visibleKeywords = facetGated || !typeSet.has("keyword")
+    ? []
+    : keywordMatches.filter(matchStr);
+  const visibleActors = facetGated || !typeSet.has("actor")
+    ? []
+    : actorMatches.filter((k) => matchStr(k.replace(/^actor:/, "")));
+  const visibleSnippets = facetGated
+    ? []
+    : snippets.filter(
+        (s) =>
+          typeSet.has(snippetKind(s.keyword)) &&
+          (matchStr(s.snippet) || matchStr(s.keyword.replace(/^actor:/, ""))),
+      );
   const visibleSourceCount =
     (idHitVisible ? 1 : 0) + visibleKeywords.length + visibleActors.length;
+  const anyFacetActive =
+    typeSet.size < 3 || bandSet.size < 3 || rangeMs !== null;
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
