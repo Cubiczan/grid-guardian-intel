@@ -19,6 +19,9 @@ into a single SOC-ready dossier per asset.
 ### Geo Situational Awareness Map
 ![Sentinel-OSINT Geo Map](docs/screenshots/map.png)
 
+### Threat Brief — ATT&CK Mapping + KEV + Proximity
+![Sentinel-OSINT Threat Brief](docs/screenshots/brief.png)
+
 ---
 
 ## What it does
