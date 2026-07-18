@@ -290,3 +290,149 @@ export function downloadMarkdown(filename: string, md: string) {
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
+
+// ─── ATT&CK technique evidence export ─────────────────────────
+
+export type EvidenceExport = {
+  filenameBase: string;
+  json: string;
+  markdown: string;
+  title: string;
+};
+
+function safeSlug(s: string): string {
+  return s.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "evidence";
+}
+
+export function buildTechniqueEvidence(
+  technique: AttackMapping,
+  brief: ThreatBrief | undefined,
+): EvidenceExport {
+  const conf = scoreAttack(technique);
+  const snippets = brief?.summary
+    ? extractSnippets(brief.summary, technique.matched, { radius: 160, maxPerKeyword: 3 })
+    : [];
+  const actors = technique.matched
+    .filter((k) => k.startsWith("actor:"))
+    .map((k) => k.slice(6));
+  const keywords = technique.matched.filter(
+    (k) => !k.startsWith("actor:") && k.toLowerCase() !== technique.techniqueId.toLowerCase(),
+  );
+  const idHit = technique.matched.some(
+    (k) => k.toLowerCase() === technique.techniqueId.toLowerCase(),
+  );
+  const generatedAt = new Date().toISOString();
+
+  const jsonObj = {
+    schema: "sentinel.attack-evidence/v1",
+    exportedAt: generatedAt,
+    technique: {
+      id: technique.techniqueId,
+      name: technique.techniqueName,
+      matrix: technique.matrix,
+      url: technique.url,
+      tactic: { id: technique.tacticId, name: technique.tacticName },
+    },
+    confidence: {
+      score: conf.score,
+      band: conf.band,
+      factors: conf.factors,
+    },
+    matchedSignals: {
+      idReference: idHit ? technique.techniqueId : null,
+      keywords,
+      actors,
+      raw: technique.matched,
+    },
+    brief: brief
+      ? {
+          assetId: brief.asset.id,
+          asset: brief.asset,
+          priority: brief.priority,
+          generatedAt: brief.generatedAt,
+          summary: brief.summary,
+          sources: brief.sources,
+        }
+      : null,
+    snippets: snippets.map((s) => ({
+      keyword: s.keyword.replace(/^actor:/, "actor:"),
+      snippet: s.snippet,
+    })),
+  };
+
+  const title = `ATT&CK Evidence — ${technique.techniqueId} · ${technique.techniqueName}`;
+  const lines: string[] = [];
+  lines.push(`# ${title}`, "");
+  lines.push(`- **Tactic:** ${technique.tacticName} (${technique.tacticId})`);
+  lines.push(`- **Matrix:** ${technique.matrix === "ics" ? "ICS" : "Enterprise"}`);
+  lines.push(`- **Confidence:** ${conf.score}% (${conf.band.toUpperCase()})`);
+  lines.push(`- **Exported:** ${generatedAt}`);
+  if (brief) {
+    lines.push(
+      `- **Source brief:** ${brief.asset.id} — ${brief.asset.org} · ${brief.asset.location} · priority ${brief.priority} · generated ${brief.generatedAt}`,
+    );
+  }
+  lines.push(`- **MITRE reference:** ${technique.url}`, "");
+
+  lines.push(`## Rationale`, "");
+  for (const f of conf.factors) lines.push(`- ${f}`);
+  lines.push("");
+
+  lines.push(`## Matched signals (${technique.matched.length})`, "");
+  if (idHit) lines.push(`- **ID reference:** ${technique.techniqueId}`);
+  if (keywords.length) {
+    lines.push(`- **Keywords:**`);
+    for (const k of keywords) lines.push(`  - "${k}"`);
+  }
+  if (actors.length) {
+    lines.push(`- **Threat actors:**`);
+    for (const a of actors) lines.push(`  - ${a}`);
+  }
+  if (!idHit && !keywords.length && !actors.length) lines.push(`- (none captured)`);
+  lines.push("");
+
+  lines.push(`## Source snippets`, "");
+  if (snippets.length === 0) {
+    lines.push(`_No direct quote extracted — match likely inferred from technique ID or actor._`);
+  } else {
+    for (const s of snippets) {
+      lines.push(`> **${s.keyword.replace(/^actor:/, "actor:")}** — ${s.snippet.replace(/\n+/g, " ")}`);
+      lines.push("");
+    }
+  }
+  lines.push("");
+
+  lines.push(`## Sources`, "");
+  if (!brief || brief.sources.length === 0) {
+    lines.push(`_No sources attached to brief._`);
+  } else {
+    for (const src of brief.sources) {
+      lines.push(`- [${src.title || src.url}](${src.url})`);
+    }
+  }
+  lines.push("");
+
+  if (brief?.summary) {
+    lines.push(`## Full brief summary`, "", brief.summary, "");
+  }
+
+  const stamp = generatedAt.replace(/[:.]/g, "-");
+  const assetSlug = brief ? safeSlug(brief.asset.id) : "no-asset";
+  const filenameBase = `attack-evidence_${technique.techniqueId}_${assetSlug}_${stamp}`;
+
+  return {
+    filenameBase,
+    json: JSON.stringify(jsonObj, null, 2),
+    markdown: lines.join("\n"),
+    title,
+  };
+}
+
+export function downloadJson(filename: string, json: string) {
+  const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
