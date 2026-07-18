@@ -2463,6 +2463,7 @@ function BriefPanel({
         </p>
       </div>
       <AttackPanel attack={brief.attack ?? []} brief={brief} />
+      <ProximityPanel asset={brief.asset} />
       {brief.sources.length > 0 && (
         <div>
           <div className="text-xs uppercase tracking-widest text-muted-foreground">
