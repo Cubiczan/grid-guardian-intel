@@ -1449,12 +1449,16 @@ function AssetRow({
 }
 
 function BriefPanel({
-  brief, error, asset, kev,
+  brief, error, asset, kev, audit, delta, deltaQuery, watched,
 }: {
   brief?: ThreatBrief;
   error?: string;
   asset?: OsintAsset;
   kev?: import("@/lib/sentinel.functions").KevMatch[];
+  audit: AuditEvent[];
+  delta: { added: string[]; closed: string[] } | null;
+  deltaQuery: string;
+  watched: boolean;
 }) {
   if (error) {
     return (
@@ -1543,6 +1547,15 @@ function BriefPanel({
           </ul>
         </div>
       )}
+      <SocReportPanel
+        asset={brief.asset}
+        brief={brief}
+        kev={kev}
+        audit={audit}
+        delta={delta}
+        deltaQuery={deltaQuery}
+        watched={watched}
+      />
     </div>
   );
 }
