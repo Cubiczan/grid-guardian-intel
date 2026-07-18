@@ -455,7 +455,7 @@ function SentinelDashboard() {
             onCsv={exportCsv}
             onStix={exportStix}
             bulkPending={Object.values(bulkStatus).some(
-              (s) => s === "queued" || s === "running",
+              (s) => s.status === "queued" || s.status === "running" || s.status === "retrying",
             )}
           />
 
