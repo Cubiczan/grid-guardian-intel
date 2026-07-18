@@ -1001,6 +1001,38 @@ function AttackHeatmap({ briefs }: { briefs: Record<string, ThreatBrief> }) {
   );
 }
 
+function AttackChip({ t }: { t: AttackMapping }) {
+  const conf = scoreAttack(t);
+  const bandStyle =
+    conf.band === "high"
+      ? "border-destructive/60 bg-destructive/15 text-destructive"
+      : conf.band === "medium"
+        ? "border-chart-3/50 bg-chart-3/10 text-chart-3"
+        : "border-muted-foreground/40 bg-muted/40 text-muted-foreground";
+  return (
+    <a
+      href={t.url}
+      target="_blank"
+      rel="noreferrer"
+      title={`${t.techniqueName} · Confidence ${conf.score}% (${conf.band})\nRationale: ${conf.rationale}`}
+      className={`group inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] hover:bg-accent ${
+        t.matrix === "ics"
+          ? "border-chart-4/40 bg-chart-4/10 text-chart-4"
+          : "border-primary/40 bg-primary/10 text-primary"
+      }`}
+    >
+      <span className="font-semibold">{t.techniqueId}</span>
+      <span className="text-foreground/80">{t.techniqueName}</span>
+      <span
+        className={`ml-1 rounded-sm border px-1 py-[1px] text-[9px] font-semibold tabular-nums ${bandStyle}`}
+        aria-label={`Confidence ${conf.score} percent, ${conf.band}`}
+      >
+        {conf.score}%
+      </span>
+    </a>
+  );
+}
+
 function AttackPanel({
   attack,
 }: {
