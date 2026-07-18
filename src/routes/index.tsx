@@ -10,6 +10,7 @@ import {
   getKevForProtocols,
   sendWebhook,
   scoreAttack,
+  extractSnippets,
   type ThreatBrief,
   type OsintAsset,
   type ReconToolkit,
@@ -1714,7 +1715,7 @@ function BriefPanel({
           {brief.summary}
         </p>
       </div>
-      <AttackPanel attack={brief.attack ?? []} />
+      <AttackPanel attack={brief.attack ?? []} brief={brief} />
       {brief.sources.length > 0 && (
         <div>
           <div className="text-xs uppercase tracking-widest text-muted-foreground">
