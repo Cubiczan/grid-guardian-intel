@@ -128,6 +128,24 @@ function SentinelDashboard() {
   const [bulkStatus, setBulkStatus] = useState<Record<string, BulkState>>({});
   const bulkRunning = useRef(false);
 
+  // Bulk retry configuration (persisted).
+  const [retryConfig, setRetryConfig] = useState<{ attempts: number; baseMs: number }>(() => {
+    if (typeof window === "undefined") return { attempts: 4, baseMs: 800 };
+    try {
+      const raw = localStorage.getItem("sentinel:bulk-retry");
+      if (raw) {
+        const p = JSON.parse(raw);
+        const attempts = Math.max(1, Math.min(10, Number(p.attempts) || 4));
+        const baseMs = Math.max(100, Math.min(10000, Number(p.baseMs) || 800));
+        return { attempts, baseMs };
+      }
+    } catch { /* ignore */ }
+    return { attempts: 4, baseMs: 800 };
+  });
+  useEffect(() => {
+    try { localStorage.setItem("sentinel:bulk-retry", JSON.stringify(retryConfig)); } catch { /* ignore */ }
+  }, [retryConfig]);
+
   // KEV enrichment: proto → matches[]
   const protoList = useMemo(
     () => Array.from(new Set(feed.assets.map((a) => a.protocol))),
@@ -253,8 +271,8 @@ function SentinelDashboard() {
     setBulkStatus(
       Object.fromEntries(queue.map((a) => [a.id, { status: "queued" } as BulkState])),
     );
-    const MAX_ATTEMPTS = 4;
-    const BASE_MS = 800;
+    const MAX_ATTEMPTS = retryConfig.attempts;
+    const BASE_MS = retryConfig.baseMs;
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const errMsg = (e: unknown) => {
       if (e instanceof Error) return e.message || e.name;
@@ -457,6 +475,8 @@ function SentinelDashboard() {
             bulkPending={Object.values(bulkStatus).some(
               (s) => s.status === "queued" || s.status === "running" || s.status === "retrying",
             )}
+            retryConfig={retryConfig}
+            setRetryConfig={setRetryConfig}
           />
 
           <div className="overflow-hidden rounded-lg border border-border">
