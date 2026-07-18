@@ -48,6 +48,48 @@ export type AttackMapping = {
   matched: string[]; // keywords / phrases that fired
 };
 
+// ─── Confidence scoring for ATT&CK mappings ──────────────────
+// Client-safe pure helper. Also handles legacy briefs whose
+// mappings pre-date this scoring layer.
+export type AttackConfidence = {
+  score: number; // 0-99
+  band: "high" | "medium" | "low";
+  rationale: string;
+  factors: string[];
+};
+
+export function scoreAttack(m: Pick<AttackMapping, "techniqueId" | "matched">): AttackConfidence {
+  const matched = m.matched ?? [];
+  const idHit = matched.some((k) => k.toLowerCase() === m.techniqueId.toLowerCase());
+  const actorHits = matched.filter((k) => k.startsWith("actor:"));
+  const keywordHits = matched.filter((k) => !k.startsWith("actor:") && k.toLowerCase() !== m.techniqueId.toLowerCase());
+  const multiWord = keywordHits.filter((k) => k.includes(" "));
+
+  const factors: string[] = [];
+  let score = 20; // baseline for any hit
+  if (idHit) {
+    score += 55;
+    factors.push(`Direct reference to ${m.techniqueId} in the brief text`);
+  }
+  if (keywordHits.length) {
+    score += Math.min(40, keywordHits.length * 15);
+    if (multiWord.length) score += Math.min(10, multiWord.length * 4);
+    factors.push(
+      `${keywordHits.length} keyword ${keywordHits.length === 1 ? "phrase" : "phrases"} matched: ${keywordHits.slice(0, 4).map((k) => `“${k}”`).join(", ")}${keywordHits.length > 4 ? "…" : ""}`,
+    );
+  }
+  if (actorHits.length) {
+    score += Math.min(35, actorHits.length * 25);
+    const actors = actorHits.map((a) => a.replace(/^actor:/, "")).join(", ");
+    factors.push(`Inferred from named threat actor(s): ${actors}`);
+  }
+  if (!factors.length) factors.push("Weak signal — no strong matches recorded");
+
+  score = Math.max(15, Math.min(99, score));
+  const band: AttackConfidence["band"] = score >= 75 ? "high" : score >= 45 ? "medium" : "low";
+  return { score, band, rationale: factors.join(" · "), factors };
+}
+
 type AttackDef = {
   matrix: "ics" | "enterprise";
   id: string;
