@@ -82,11 +82,11 @@ export const Route = createFileRoute("/")({
         content:
           "Fuses infrastructure OSINT with Tavily AI-synthesized geopolitical and cyber-threat intelligence to prioritize alerts for critical infrastructure defenders.",
       },
-      { property: "og:title", content: "Sentinel-OSINT — Threat Matrix" },
+      { property: "og:title", content: "Sentinel-OSINT — Cyber-Physical Threat Prioritization" },
       {
         property: "og:description",
         content:
-          "From raw exposed-asset data to actionable national security intelligence.",
+          "Fuses infrastructure OSINT with Tavily AI-synthesized geopolitical and cyber-threat intelligence to prioritize alerts for critical infrastructure defenders.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
