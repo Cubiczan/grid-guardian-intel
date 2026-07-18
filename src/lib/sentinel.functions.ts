@@ -27,15 +27,132 @@ export type ThreatBrief = {
   generatedAt: string;
 };
 
-export const listExposedAssets = createServerFn({ method: "GET" }).handler(async () => {
-  return MOCK_ASSETS;
-});
+// ICS/SCADA protocol fingerprints — used to label Censys hits.
+const PROTOCOL_BY_PORT: Record<number, { protocol: string; sector: string }> = {
+  502: { protocol: "Modbus", sector: "Industrial Control" },
+  102: { protocol: "Siemens S7", sector: "Industrial Control" },
+  44818: { protocol: "EtherNet/IP", sector: "Industrial Control" },
+  20000: { protocol: "DNP3", sector: "Energy" },
+  2404: { protocol: "IEC-104", sector: "Energy" },
+  1911: { protocol: "Niagara Fox", sector: "Building Automation" },
+  4911: { protocol: "Niagara Fox", sector: "Building Automation" },
+  47808: { protocol: "BACnet", sector: "Building Automation" },
+  789: { protocol: "Red Lion Crimson", sector: "Industrial Control" },
+  9600: { protocol: "OMRON FINS", sector: "Industrial Control" },
+  5006: { protocol: "MELSEC-Q", sector: "Industrial Control" },
+  1962: { protocol: "PCWorx", sector: "Industrial Control" },
+};
+
+// Default Censys query: ICS/SCADA services exposed to the public internet.
+const DEFAULT_CENSYS_QUERY =
+  "services.service_name: {MODBUS, S7, DNP3, IEC_60870_5_104, FOX, BACNET, ETHERNET_IP}";
+
+type CensysHit = {
+  ip?: string;
+  location?: { country?: string; province?: string; city?: string };
+  autonomous_system?: { name?: string };
+  services?: Array<{
+    port?: number;
+    service_name?: string;
+    extended_service_name?: string;
+  }>;
+};
+
+function normalizeCensys(hits: CensysHit[]): OsintAsset[] {
+  const out: OsintAsset[] = [];
+  for (const h of hits) {
+    if (!h.ip || !h.services?.length) continue;
+    // Prefer ICS services; fall back to first service.
+    const svc =
+      h.services.find((s) => s.port && PROTOCOL_BY_PORT[s.port]) ?? h.services[0];
+    const port = svc?.port ?? 0;
+    const fingerprint = PROTOCOL_BY_PORT[port];
+    const protocol =
+      fingerprint?.protocol ??
+      svc?.extended_service_name ??
+      svc?.service_name ??
+      "Unknown";
+    const sector = fingerprint?.sector ?? "Infrastructure";
+    const loc = [h.location?.city, h.location?.province, h.location?.country]
+      .filter(Boolean)
+      .join(", ") || "Unknown";
+    out.push({
+      id: `${h.ip}:${port}`,
+      ip: h.ip,
+      port,
+      protocol,
+      location: loc,
+      org: h.autonomous_system?.name ?? "Unknown operator",
+      sector,
+    });
+  }
+  return out;
+}
+
+export type AssetFeed = {
+  assets: OsintAsset[];
+  source: "censys" | "mock";
+  query: string;
+  error?: string;
+};
+
+export const listExposedAssets = createServerFn({ method: "GET" })
+  .inputValidator((input?: { query?: string }) => input ?? {})
+  .handler(async ({ data }): Promise<AssetFeed> => {
+    const query = data.query?.trim() || DEFAULT_CENSYS_QUERY;
+    const apiKey = process.env.CENSYS_API_KEY;
+    if (!apiKey) {
+      return { assets: MOCK_ASSETS, source: "mock", query, error: "Missing CENSYS_API_KEY" };
+    }
+    try {
+      const res = await fetch("https://api.platform.censys.io/v3/global/search/query", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query, page_size: 25 }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        console.error(`Censys error [${res.status}]: ${body}`);
+        return {
+          assets: MOCK_ASSETS,
+          source: "mock",
+          query,
+          error: `Censys request failed [${res.status}] — showing mock feed`,
+        };
+      }
+      const json = (await res.json()) as {
+        result?: { hits?: CensysHit[] };
+        hits?: CensysHit[];
+      };
+      const hits = json.result?.hits ?? json.hits ?? [];
+      const assets = normalizeCensys(hits);
+      if (!assets.length) {
+        return {
+          assets: MOCK_ASSETS,
+          source: "mock",
+          query,
+          error: "Censys returned no hits — showing mock feed",
+        };
+      }
+      return { assets, source: "censys", query };
+    } catch (err) {
+      console.error("Censys ingestion failed", err);
+      return {
+        assets: MOCK_ASSETS,
+        source: "mock",
+        query,
+        error: (err as Error).message,
+      };
+    }
+  });
 
 export const analyzeAsset = createServerFn({ method: "POST" })
-  .inputValidator((input: { assetId: string }) => input)
+  .inputValidator((input: { asset: OsintAsset }) => input)
   .handler(async ({ data }): Promise<ThreatBrief> => {
-    const asset = MOCK_ASSETS.find((a) => a.id === data.assetId);
-    if (!asset) throw new Error("Asset not found");
+    const asset = data.asset;
 
     const apiKey = process.env.TAVILY_API_KEY;
     if (!apiKey) throw new Error("Missing TAVILY_API_KEY");
