@@ -4,12 +4,21 @@ import { queryOptions, useSuspenseQuery, useMutation, useQuery } from "@tanstack
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Star, ArrowUpDown, ExternalLink, Bell, Download, Radar } from "lucide-react";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   listExposedAssets,
   analyzeAsset,
   getReconToolkit,
   getKevForProtocols,
   sendWebhook,
   scoreAttack,
+  extractSnippets,
   type ThreatBrief,
   type OsintAsset,
   type ReconToolkit,
@@ -1001,21 +1010,22 @@ function AttackHeatmap({ briefs }: { briefs: Record<string, ThreatBrief> }) {
   );
 }
 
-function AttackChip({ t }: { t: AttackMapping }) {
+function bandStyleFor(band: "high" | "medium" | "low"): string {
+  return band === "high"
+    ? "border-destructive/60 bg-destructive/15 text-destructive"
+    : band === "medium"
+      ? "border-chart-3/50 bg-chart-3/10 text-chart-3"
+      : "border-muted-foreground/40 bg-muted/40 text-muted-foreground";
+}
+
+function AttackChip({ t, onOpen }: { t: AttackMapping; onOpen: (t: AttackMapping) => void }) {
   const conf = scoreAttack(t);
-  const bandStyle =
-    conf.band === "high"
-      ? "border-destructive/60 bg-destructive/15 text-destructive"
-      : conf.band === "medium"
-        ? "border-chart-3/50 bg-chart-3/10 text-chart-3"
-        : "border-muted-foreground/40 bg-muted/40 text-muted-foreground";
   return (
-    <a
-      href={t.url}
-      target="_blank"
-      rel="noreferrer"
-      title={`${t.techniqueName} · Confidence ${conf.score}% (${conf.band})\nRationale: ${conf.rationale}`}
-      className={`group inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] hover:bg-accent ${
+    <button
+      type="button"
+      onClick={() => onOpen(t)}
+      title={`${t.techniqueName} · Confidence ${conf.score}% (${conf.band}) — click for evidence`}
+      className={`group inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] hover:bg-accent focus:outline-none focus:ring-1 focus:ring-primary ${
         t.matrix === "ics"
           ? "border-chart-4/40 bg-chart-4/10 text-chart-4"
           : "border-primary/40 bg-primary/10 text-primary"
@@ -1024,20 +1034,197 @@ function AttackChip({ t }: { t: AttackMapping }) {
       <span className="font-semibold">{t.techniqueId}</span>
       <span className="text-foreground/80">{t.techniqueName}</span>
       <span
-        className={`ml-1 rounded-sm border px-1 py-[1px] text-[9px] font-semibold tabular-nums ${bandStyle}`}
+        className={`ml-1 rounded-sm border px-1 py-[1px] text-[9px] font-semibold tabular-nums ${bandStyleFor(conf.band)}`}
         aria-label={`Confidence ${conf.score} percent, ${conf.band}`}
       >
         {conf.score}%
       </span>
-    </a>
+    </button>
   );
+}
+
+function AttackEvidenceDialog({
+  technique,
+  brief,
+  onClose,
+}: {
+  technique: AttackMapping | null;
+  brief: ThreatBrief | undefined;
+  onClose: () => void;
+}) {
+  const open = technique !== null;
+  if (!technique) {
+    return (
+      <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+        <DialogContent />
+      </Dialog>
+    );
+  }
+  const conf = scoreAttack(technique);
+  const snippets = brief?.summary
+    ? extractSnippets(brief.summary, technique.matched, { radius: 120, maxPerKeyword: 2 })
+    : [];
+  const actorMatches = technique.matched.filter((k) => k.startsWith("actor:"));
+  const idHit = technique.matched.some(
+    (k) => k.toLowerCase() === technique.techniqueId.toLowerCase(),
+  );
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <DialogTitle className="font-mono">
+                {technique.techniqueId} · {technique.techniqueName}
+              </DialogTitle>
+              <DialogDescription>
+                Tactic: {technique.tacticName} ({technique.tacticId}) ·{" "}
+                {technique.matrix === "ics" ? "ICS Matrix" : "Enterprise Matrix"}
+              </DialogDescription>
+            </div>
+            <span
+              className={`shrink-0 rounded-sm border px-1.5 py-[1px] text-[10px] font-semibold tabular-nums ${bandStyleFor(conf.band)}`}
+            >
+              {conf.score}% · {conf.band.toUpperCase()}
+            </span>
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-4 text-sm">
+          <section>
+            <div className="mb-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Rationale
+            </div>
+            <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed">
+              {conf.factors.map((f, i) => (
+                <li key={i}>{f}</li>
+              ))}
+            </ul>
+          </section>
+
+          <section>
+            <div className="mb-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Matched signals ({technique.matched.length})
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {idHit && (
+                <span className="rounded border border-destructive/60 bg-destructive/15 px-1.5 py-0.5 font-mono text-[10px] text-destructive">
+                  ID reference: {technique.techniqueId}
+                </span>
+              )}
+              {technique.matched
+                .filter((k) => k.toLowerCase() !== technique.techniqueId.toLowerCase() && !k.startsWith("actor:"))
+                .map((k) => (
+                  <span
+                    key={k}
+                    className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-foreground"
+                  >
+                    “{k}”
+                  </span>
+                ))}
+              {actorMatches.map((k) => (
+                <span
+                  key={k}
+                  className="rounded border border-chart-3/50 bg-chart-3/10 px-1.5 py-0.5 font-mono text-[10px] text-chart-3"
+                >
+                  actor: {k.replace(/^actor:/, "")}
+                </span>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Source snippets from brief
+            </div>
+            {snippets.length === 0 ? (
+              <div className="rounded border border-dashed border-border p-2 text-xs text-muted-foreground">
+                No direct quotes located in the brief text. Match likely comes from an inferred
+                actor or from the technique ID appearing outside quoted context.
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {snippets.map((s, i) => (
+                  <li key={i} className="rounded border border-border bg-background/60 p-2 text-xs leading-relaxed">
+                    <div className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      matched: “{s.keyword.replace(/^actor:/, "actor:")}”
+                    </div>
+                    <HighlightedSnippet text={s.snippet} keyword={s.keyword.replace(/^actor:/, "")} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {brief && brief.sources.length > 0 && (
+            <section>
+              <div className="mb-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Brief sources ({brief.sources.length})
+              </div>
+              <ul className="space-y-1 text-xs">
+                {brief.sources.map((src) => (
+                  <li key={src.url}>
+                    <a
+                      href={src.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      <ExternalLink size={10} />
+                      {src.title || src.url}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+
+        <DialogFooter>
+          <a
+            href={technique.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] uppercase tracking-widest hover:bg-accent"
+          >
+            View on attack.mitre.org <ExternalLink size={10} />
+          </a>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function HighlightedSnippet({ text, keyword }: { text: string; keyword: string }) {
+  if (!keyword) return <span>{text}</span>;
+  const lower = text.toLowerCase();
+  const k = keyword.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  let idx = lower.indexOf(k);
+  let i = 0;
+  while (idx !== -1) {
+    if (idx > cursor) parts.push(text.slice(cursor, idx));
+    parts.push(
+      <mark key={i++} className="rounded bg-chart-4/30 px-0.5 text-foreground">
+        {text.slice(idx, idx + k.length)}
+      </mark>,
+    );
+    cursor = idx + k.length;
+    idx = lower.indexOf(k, cursor);
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <span>{parts}</span>;
 }
 
 function AttackPanel({
   attack,
+  brief,
 }: {
   attack: AttackMapping[];
+  brief?: ThreatBrief;
 }) {
+  const [active, setActive] = useState<AttackMapping | null>(null);
   if (!attack.length) {
     return (
       <div>
@@ -1090,12 +1277,13 @@ function AttackPanel({
             </div>
             <div className="flex flex-wrap gap-1">
               {g.items.map((t) => (
-                <AttackChip key={`${t.matrix}:${t.techniqueId}`} t={t} />
+                <AttackChip key={`${t.matrix}:${t.techniqueId}`} t={t} onOpen={setActive} />
               ))}
             </div>
           </div>
         ))}
       </div>
+      <AttackEvidenceDialog technique={active} brief={brief} onClose={() => setActive(null)} />
     </div>
   );
 }
@@ -1714,7 +1902,7 @@ function BriefPanel({
           {brief.summary}
         </p>
       </div>
-      <AttackPanel attack={brief.attack ?? []} />
+      <AttackPanel attack={brief.attack ?? []} brief={brief} />
       {brief.sources.length > 0 && (
         <div>
           <div className="text-xs uppercase tracking-widest text-muted-foreground">
