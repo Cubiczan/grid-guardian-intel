@@ -1,24 +1,254 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { queryOptions, useSuspenseQuery, useMutation } from "@tanstack/react-query";
+import { useState } from "react";
+import {
+  listExposedAssets,
+  analyzeAsset,
+  type ThreatBrief,
+  type OsintAsset,
+} from "@/lib/sentinel.functions";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
-export const Route = createFileRoute("/")({
-  component: Index,
+const assetsQuery = queryOptions({
+  queryKey: ["sentinel", "assets"],
+  queryFn: () => listExposedAssets(),
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
-function Index() {
+export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Sentinel-OSINT — Cyber-Physical Threat Prioritization" },
+      {
+        name: "description",
+        content:
+          "Fuses infrastructure OSINT with Tavily AI-synthesized geopolitical and cyber-threat intelligence to prioritize alerts for critical infrastructure defenders.",
+      },
+      { property: "og:title", content: "Sentinel-OSINT — Threat Matrix" },
+      {
+        property: "og:description",
+        content:
+          "From raw exposed-asset data to actionable national security intelligence.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
+  loader: ({ context }) => context.queryClient.ensureQueryData(assetsQuery),
+  component: SentinelDashboard,
+});
+
+function SentinelDashboard() {
+  const { data: assets } = useSuspenseQuery(assetsQuery);
+  const analyzeFn = useServerFn(analyzeAsset);
+  const [briefs, setBriefs] = useState<Record<string, ThreatBrief>>({});
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: (assetId: string) => analyzeFn({ data: { assetId } }),
+    onSuccess: (brief) => {
+      setBriefs((prev) => ({ ...prev, [brief.asset.id]: brief }));
+      setSelected(brief.asset.id);
+    },
+  });
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="border-b border-border">
+        <div className="mx-auto max-w-7xl px-6 py-8">
+          <div className="flex items-center gap-3">
+            <div className="h-3 w-3 rounded-full bg-destructive animate-pulse" />
+            <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+              Sentinel-OSINT // Operational
+            </span>
+          </div>
+          <h1 className="mt-3 text-4xl font-bold tracking-tight">
+            Cyber-Physical Threat Matrix
+          </h1>
+          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+            Ingests exposed critical infrastructure assets and fuses them with Tavily
+            AI-synthesized intelligence — turning raw OSINT into prioritized national
+            security context.
+          </p>
+        </div>
+      </header>
+
+      <main className="mx-auto grid max-w-7xl gap-6 px-6 py-8 lg:grid-cols-[1.4fr_1fr]">
+        <section>
+          <h2 className="mb-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            Exposed Assets ({assets.length})
+          </h2>
+          <div className="overflow-hidden rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">Target</th>
+                  <th className="px-3 py-2 text-left font-medium">Protocol</th>
+                  <th className="px-3 py-2 text-left font-medium">Location</th>
+                  <th className="px-3 py-2 text-left font-medium">Priority</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {assets.map((asset) => (
+                  <AssetRow
+                    key={asset.id}
+                    asset={asset}
+                    brief={briefs[asset.id]}
+                    selected={selected === asset.id}
+                    loading={mutation.isPending && mutation.variables === asset.id}
+                    onAnalyze={() => mutation.mutate(asset.id)}
+                    onSelect={() => setSelected(asset.id)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside>
+          <h2 className="mb-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            Threat Brief
+          </h2>
+          <BriefPanel
+            brief={selected ? briefs[selected] : undefined}
+            error={mutation.error?.message}
+          />
+        </aside>
+      </main>
+    </div>
+  );
+}
+
+function priorityStyle(p?: ThreatBrief["priority"]) {
+  if (p === "P1 - CRITICAL") return "bg-destructive text-destructive-foreground";
+  if (p === "P2 - HIGH") return "bg-chart-4 text-primary-foreground";
+  if (p === "P3 - MONITOR") return "bg-chart-2 text-primary-foreground";
+  return "bg-muted text-muted-foreground";
+}
+
+function AssetRow({
+  asset,
+  brief,
+  selected,
+  loading,
+  onAnalyze,
+  onSelect,
+}: {
+  asset: OsintAsset;
+  brief?: ThreatBrief;
+  selected: boolean;
+  loading: boolean;
+  onAnalyze: () => void;
+  onSelect: () => void;
+}) {
+  return (
+    <tr
+      onClick={onSelect}
+      className={`cursor-pointer border-t border-border transition-colors ${
+        selected ? "bg-accent/60" : "hover:bg-accent/30"
+      }`}
     >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+      <td className="px-3 py-3 font-mono text-xs">
+        <div className="font-semibold text-foreground">{asset.ip}:{asset.port}</div>
+        <div className="text-muted-foreground">{asset.org}</div>
+      </td>
+      <td className="px-3 py-3">{asset.protocol}</td>
+      <td className="px-3 py-3 text-muted-foreground">{asset.location}</td>
+      <td className="px-3 py-3">
+        <span
+          className={`inline-block rounded px-2 py-0.5 text-xs font-mono font-semibold ${priorityStyle(
+            brief?.priority,
+          )}`}
+        >
+          {brief?.priority ?? "UNSCORED"}
+        </span>
+      </td>
+      <td className="px-3 py-3 text-right">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onAnalyze();
+          }}
+          disabled={loading}
+          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50"
+        >
+          {loading ? "Analyzing…" : brief ? "Re-run" : "Analyze"}
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function BriefPanel({ brief, error }: { brief?: ThreatBrief; error?: string }) {
+  if (error) {
+    return (
+      <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+        {error}
+      </div>
+    );
+  }
+  if (!brief) {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+        Select an asset and run <span className="font-mono">Analyze</span> to fuse
+        technical OSINT with Tavily strategic intelligence.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4 rounded-lg border border-border bg-card p-5">
+      <div className="flex items-center justify-between">
+        <span
+          className={`rounded px-2 py-0.5 text-xs font-mono font-semibold ${priorityStyle(
+            brief.priority,
+          )}`}
+        >
+          {brief.priority}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {new Date(brief.generatedAt).toLocaleTimeString()}
+        </span>
+      </div>
+      <div>
+        <div className="text-xs uppercase tracking-widest text-muted-foreground">
+          Target
+        </div>
+        <div className="mt-1 font-mono text-sm">
+          {brief.asset.ip}:{brief.asset.port} · {brief.asset.protocol}
+        </div>
+        <div className="text-sm text-muted-foreground">
+          {brief.asset.org} — {brief.asset.location}
+        </div>
+      </div>
+      <div>
+        <div className="text-xs uppercase tracking-widest text-muted-foreground">
+          AI Threat Summary
+        </div>
+        <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">
+          {brief.summary}
+        </p>
+      </div>
+      {brief.sources.length > 0 && (
+        <div>
+          <div className="text-xs uppercase tracking-widest text-muted-foreground">
+            Sources
+          </div>
+          <ul className="mt-2 space-y-1 text-sm">
+            {brief.sources.map((s) => (
+              <li key={s.url}>
+                <a
+                  href={s.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary underline-offset-2 hover:underline"
+                >
+                  {s.title || s.url}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
