@@ -5,9 +5,20 @@ import { useEffect, useMemo, useState } from "react";
 import {
   analyzeAsset,
   scoreAttack,
+  extractSnippets,
   type OsintAsset,
   type ThreatBrief,
+  type AttackMapping,
 } from "@/lib/sentinel.functions";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { ExternalLink } from "lucide-react";
 import { loadBriefs, saveBrief } from "@/lib/sentinel-storage";
 
 type Search = {
