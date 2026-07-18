@@ -1,22 +1,57 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { queryOptions, useSuspenseQuery, useMutation } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { Star } from "lucide-react";
+import { queryOptions, useSuspenseQuery, useMutation, useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Star, ArrowUpDown, ExternalLink, Bell, Download, Radar } from "lucide-react";
 import {
   listExposedAssets,
   analyzeAsset,
   getReconToolkit,
+  getKevForProtocols,
+  sendWebhook,
   type ThreatBrief,
   type OsintAsset,
   type ReconToolkit,
+  type KevReport,
 } from "@/lib/sentinel.functions";
+import {
+  loadBriefs,
+  saveBrief,
+  loadWatch,
+  toggleWatch,
+  loadSnapshot,
+  saveSnapshot,
+  diffSnapshot,
+  loadAudit,
+  logAudit,
+  loadWebhook,
+  saveWebhook,
+  type AuditEvent,
+  type WebhookConfig,
+} from "@/lib/sentinel-storage";
+import { assetsToCsv, assetsToStix, downloadText } from "@/lib/sentinel-export";
 
 const assetsQuery = (query?: string, cursor?: string) =>
   queryOptions({
     queryKey: ["sentinel", "assets", query ?? "", cursor ?? ""],
     queryFn: () => listExposedAssets({ data: { query, cursor } }),
   });
+
+type SortKey = "priority" | "port" | "org" | "analyzed";
+type ColumnKey = "target" | "protocol" | "location" | "kev" | "priority" | "analyzed";
+const DEFAULT_COLUMNS: Record<ColumnKey, boolean> = {
+  target: true,
+  protocol: true,
+  location: true,
+  kev: true,
+  priority: true,
+  analyzed: true,
+};
+const PRIORITY_RANK: Record<string, number> = {
+  "P1 - CRITICAL": 0,
+  "P2 - HIGH": 1,
+  "P3 - MONITOR": 2,
+};
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -53,18 +88,90 @@ function SentinelDashboard() {
   );
   const analyzeFn = useServerFn(analyzeAsset);
   const reconFn = useServerFn(getReconToolkit);
+  const kevFn = useServerFn(getKevForProtocols);
+  const webhookFn = useServerFn(sendWebhook);
   // Briefs are keyed by asset.id (ip:port), so mapping survives across pages.
   const [briefs, setBriefs] = useState<Record<string, ThreatBrief>>({});
   const [toolkits, setToolkits] = useState<Record<string, ReconToolkit>>({});
   const [selected, setSelected] = useState<string | null>(null);
 
+  // Persisted state hydration.
+  const [watch, setWatch] = useState<Record<string, { asset: OsintAsset; addedAt: string }>>({});
+  const [audit, setAudit] = useState<AuditEvent[]>([]);
+  const [webhook, setWebhook] = useState<WebhookConfig>({ url: "", enabled: false });
+  const [delta, setDelta] = useState<{ added: string[]; closed: string[] } | null>(null);
+  useEffect(() => {
+    setBriefs(loadBriefs());
+    setWatch(loadWatch());
+    setAudit(loadAudit());
+    setWebhook(loadWebhook());
+  }, []);
+
+  // Filters + sort + column state.
+  const [search, setSearch] = useState("");
+  const [sectorFilter, setSectorFilter] = useState<string>("all");
+  const [protoFilter, setProtoFilter] = useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "priority",
+    dir: "asc",
+  });
+  const [columns, setColumns] = useState<Record<ColumnKey, boolean>>(DEFAULT_COLUMNS);
+
+  // Bulk analyze queue: per-asset status.
+  const [bulkStatus, setBulkStatus] = useState<Record<string, "queued" | "running" | "done" | "error">>({});
+  const bulkRunning = useRef(false);
+
+  // KEV enrichment: proto → matches[]
+  const protoList = useMemo(
+    () => Array.from(new Set(feed.assets.map((a) => a.protocol))),
+    [feed.assets],
+  );
+  const kevQuery = useQuery({
+    queryKey: ["sentinel", "kev", protoList.sort().join("|")],
+    queryFn: () => kevFn({ data: { protocols: protoList } }),
+    enabled: protoList.length > 0,
+    staleTime: 60 * 60 * 1000,
+  });
+  const kev: KevReport = kevQuery.data ?? {};
+
   const mutation = useMutation({
     mutationFn: (asset: OsintAsset) => analyzeFn({ data: { asset } }),
     onSuccess: (brief) => {
-      setBriefs((prev) => ({ ...prev, [brief.asset.id]: brief }));
+      handleBrief(brief);
       setSelected(brief.asset.id);
     },
   });
+
+  const handleBrief = useCallback(
+    (brief: ThreatBrief) => {
+      setBriefs((prev) => ({ ...prev, [brief.asset.id]: brief }));
+      saveBrief(brief);
+      logAudit({
+        assetId: brief.asset.id,
+        kind: "analyze",
+        detail: `${brief.priority} — ${brief.asset.protocol} @ ${brief.asset.location}`,
+      });
+      setAudit(loadAudit());
+      if (brief.priority === "P1 - CRITICAL" && webhook.enabled && webhook.url) {
+        webhookFn({
+          data: {
+            url: webhook.url,
+            payload: {
+              text: `:rotating_light: Sentinel P1 — ${brief.asset.ip}:${brief.asset.port} (${brief.asset.protocol}) — ${brief.asset.org} @ ${brief.asset.location}`,
+              brief: {
+                asset: brief.asset,
+                priority: brief.priority,
+                summary: brief.summary,
+                sources: brief.sources,
+              },
+            },
+          },
+        }).catch(() => {/* swallow; UI already reflects the brief */});
+      }
+    },
+    [webhook, webhookFn],
+  );
 
   const reconMutation = useMutation({
     mutationFn: (asset: OsintAsset) => reconFn({ data: { asset } }),
@@ -81,6 +188,139 @@ function SentinelDashboard() {
     if (cursorStack.length > 1) setCursorStack((s) => s.slice(0, -1));
   };
 
+  // Filter + sort pipeline.
+  const sectorOptions = useMemo(
+    () => ["all", ...Array.from(new Set(feed.assets.map((a) => a.sector)))],
+    [feed.assets],
+  );
+  const protoOptions = useMemo(
+    () => ["all", ...Array.from(new Set(feed.assets.map((a) => a.protocol)))],
+    [feed.assets],
+  );
+
+  const visibleAssets = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = feed.assets.filter((a) => {
+      if (sectorFilter !== "all" && a.sector !== sectorFilter) return false;
+      if (protoFilter !== "all" && a.protocol !== protoFilter) return false;
+      if (priorityFilter !== "all") {
+        const p = briefs[a.id]?.priority ?? "UNSCORED";
+        if (priorityFilter === "unscored" ? p !== "UNSCORED" : p !== priorityFilter)
+          return false;
+      }
+      if (!q) return true;
+      return (
+        a.ip.includes(q) ||
+        a.org.toLowerCase().includes(q) ||
+        a.location.toLowerCase().includes(q) ||
+        a.protocol.toLowerCase().includes(q) ||
+        a.sector.toLowerCase().includes(q) ||
+        String(a.port).includes(q)
+      );
+    });
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      if (sort.key === "port") return (a.port - b.port) * dir;
+      if (sort.key === "org") return a.org.localeCompare(b.org) * dir;
+      if (sort.key === "analyzed") {
+        const ta = briefs[a.id]?.generatedAt ?? "";
+        const tb = briefs[b.id]?.generatedAt ?? "";
+        return ta.localeCompare(tb) * dir;
+      }
+      // priority
+      const pa = PRIORITY_RANK[briefs[a.id]?.priority ?? ""] ?? 99;
+      const pb = PRIORITY_RANK[briefs[b.id]?.priority ?? ""] ?? 99;
+      return (pa - pb) * dir;
+    });
+  }, [feed.assets, search, sectorFilter, protoFilter, priorityFilter, sort, briefs]);
+
+  const toggleSort = (key: SortKey) =>
+    setSort((s) =>
+      s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
+    );
+
+  // Bulk analyze visible rows.
+  const runBulk = async () => {
+    if (bulkRunning.current) return;
+    bulkRunning.current = true;
+    const queue = visibleAssets.filter((a) => !briefs[a.id]);
+    setBulkStatus(Object.fromEntries(queue.map((a) => [a.id, "queued"])));
+    for (const asset of queue) {
+      setBulkStatus((s) => ({ ...s, [asset.id]: "running" }));
+      try {
+        const brief = await analyzeFn({ data: { asset } });
+        handleBrief(brief);
+        setBulkStatus((s) => ({ ...s, [asset.id]: "done" }));
+      } catch {
+        setBulkStatus((s) => ({ ...s, [asset.id]: "error" }));
+      }
+    }
+    bulkRunning.current = false;
+  };
+
+  // Re-poll + diff.
+  const rePoll = async () => {
+    const key = activeQuery || "__default__";
+    const prev = loadSnapshot(key);
+    await refetch();
+    // feed will update after refetch; compute diff from latest data in next tick.
+    setTimeout(() => {
+      const ids = feed.assets.map((a) => a.id);
+      const d = diffSnapshot(prev, ids);
+      saveSnapshot(key, ids);
+      if (!d.first) {
+        setDelta({ added: d.added, closed: d.closed });
+        if (d.added.length || d.closed.length) {
+          logAudit({
+            assetId: "*",
+            kind: "delta",
+            detail: `+${d.added.length} / -${d.closed.length} on query "${key}"`,
+          });
+          setAudit(loadAudit());
+        }
+      } else {
+        setDelta(null);
+      }
+    }, 200);
+  };
+
+  // Watchlist toggle.
+  const onToggleWatch = (asset: OsintAsset) => {
+    const nowWatched = toggleWatch(asset);
+    setWatch(loadWatch());
+    logAudit({
+      assetId: asset.id,
+      kind: nowWatched ? "watch" : "unwatch",
+      detail: `${asset.ip}:${asset.port}`,
+    });
+    setAudit(loadAudit());
+  };
+
+  // Exports.
+  const exportCsv = () =>
+    downloadText(
+      `sentinel-${Date.now()}.csv`,
+      "text/csv",
+      assetsToCsv(visibleAssets, briefs),
+    );
+  const exportStix = () =>
+    downloadText(
+      `sentinel-${Date.now()}.stix.json`,
+      "application/json",
+      assetsToStix(visibleAssets, briefs),
+    );
+
+  // Geo heatmap counts (state → n).
+  const stateCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const a of feed.assets) {
+      const s = a.province || parseState(a.location);
+      if (!s) continue;
+      map.set(s, (map.get(s) ?? 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [feed.assets]);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border">
@@ -88,7 +328,7 @@ function SentinelDashboard() {
           <div className="flex items-center gap-3">
             <div className="h-3 w-3 rounded-full bg-destructive animate-pulse" />
             <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-              Sentinel-OSINT // Operational
+              Sentinel-OSINT // US Homeland Scope
             </span>
           </div>
           <h1 className="mt-3 text-4xl font-bold tracking-tight">
@@ -106,7 +346,7 @@ function SentinelDashboard() {
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-              Exposed Assets ({feed.assets.length}) ·{" "}
+              Exposed Assets ({visibleAssets.length}/{feed.assets.length}) ·{" "}
               <span
                 className={
                   feed.source === "censys"
@@ -148,29 +388,95 @@ function SentinelDashboard() {
               {feed.error}
             </div>
           )}
+          {delta && (delta.added.length > 0 || delta.closed.length > 0) && (
+            <div className="mb-3 rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-xs">
+              <span className="font-mono uppercase text-primary">Δ delta</span> ·{" "}
+              <span className="text-chart-2">+{delta.added.length} new</span>{" "}
+              <span className="text-muted-foreground">/</span>{" "}
+              <span className="text-chart-4">-{delta.closed.length} closed</span> since
+              last snapshot
+            </div>
+          )}
+
+          <ToolbarPanel
+            search={search}
+            setSearch={setSearch}
+            sectorOptions={sectorOptions}
+            sector={sectorFilter}
+            setSector={setSectorFilter}
+            protoOptions={protoOptions}
+            proto={protoFilter}
+            setProto={setProtoFilter}
+            priority={priorityFilter}
+            setPriority={setPriorityFilter}
+            columns={columns}
+            setColumns={setColumns}
+            onBulk={runBulk}
+            onRePoll={rePoll}
+            onCsv={exportCsv}
+            onStix={exportStix}
+            bulkPending={Object.values(bulkStatus).some(
+              (s) => s === "queued" || s === "running",
+            )}
+          />
+
           <div className="overflow-hidden rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">Target</th>
-                  <th className="px-3 py-2 text-left font-medium">Protocol</th>
-                  <th className="px-3 py-2 text-left font-medium">Location</th>
-                  <th className="px-3 py-2 text-left font-medium">Priority</th>
+                  {columns.target && (
+                    <th className="px-3 py-2 text-left font-medium">
+                      <SortHeader label="Target / Org" onClick={() => toggleSort("org")} active={sort.key === "org"} dir={sort.dir} />
+                    </th>
+                  )}
+                  {columns.protocol && (
+                    <th className="px-3 py-2 text-left font-medium">
+                      <SortHeader label="Protocol / Port" onClick={() => toggleSort("port")} active={sort.key === "port"} dir={sort.dir} />
+                    </th>
+                  )}
+                  {columns.location && (
+                    <th className="px-3 py-2 text-left font-medium">Location</th>
+                  )}
+                  {columns.kev && (
+                    <th className="px-3 py-2 text-left font-medium">KEV</th>
+                  )}
+                  {columns.priority && (
+                    <th className="px-3 py-2 text-left font-medium">
+                      <SortHeader label="Priority" onClick={() => toggleSort("priority")} active={sort.key === "priority"} dir={sort.dir} />
+                    </th>
+                  )}
+                  {columns.analyzed && (
+                    <th className="px-3 py-2 text-left font-medium">
+                      <SortHeader label="Analyzed" onClick={() => toggleSort("analyzed")} active={sort.key === "analyzed"} dir={sort.dir} />
+                    </th>
+                  )}
                   <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
-                {feed.assets.map((asset) => (
+                {visibleAssets.map((asset) => (
                   <AssetRow
                     key={asset.id}
                     asset={asset}
                     brief={briefs[asset.id]}
                     selected={selected === asset.id}
                     loading={mutation.isPending && mutation.variables?.id === asset.id}
+                    bulk={bulkStatus[asset.id]}
+                    watched={Boolean(watch[asset.id])}
+                    kevCount={kev[asset.protocol]?.length ?? 0}
+                    columns={columns}
                     onAnalyze={() => mutation.mutate(asset)}
                     onSelect={() => setSelected(asset.id)}
+                    onToggleWatch={() => onToggleWatch(asset)}
                   />
                 ))}
+                {visibleAssets.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      No assets match your filters.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -196,6 +502,8 @@ function SentinelDashboard() {
               </button>
             </div>
           </div>
+
+          <GeoHeatmap counts={stateCounts} />
         </section>
 
         <aside>
@@ -204,8 +512,13 @@ function SentinelDashboard() {
           </h2>
           <BriefPanel
             brief={selected ? briefs[selected] : undefined}
+            asset={selected ? feed.assets.find((a) => a.id === selected) : undefined}
             error={mutation.error?.message}
+            kev={selected ? kev[feed.assets.find((a) => a.id === selected)?.protocol ?? ""] : undefined}
           />
+          <NotifierPanel webhook={webhook} setWebhook={(w) => { saveWebhook(w); setWebhook(w); }} />
+          <WatchlistPanel watch={watch} briefs={briefs} onOpen={(id) => setSelected(id)} />
+          <AuditPanel events={audit} />
           <h2 className="mb-3 mt-6 text-xs font-mono uppercase tracking-widest text-muted-foreground">
             Recon Toolkit · OSINT Framework
           </h2>
@@ -218,6 +531,294 @@ function SentinelDashboard() {
           />
         </aside>
       </main>
+    </div>
+  );
+}
+
+// ─── US state parsing (fallback when Censys province is absent) ───
+const US_STATES: Record<string, string> = {
+  Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA",
+  Colorado: "CO", Connecticut: "CT", Delaware: "DE", Florida: "FL", Georgia: "GA",
+  Hawaii: "HI", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA",
+  Kansas: "KS", Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD",
+  Massachusetts: "MA", Michigan: "MI", Minnesota: "MN", Mississippi: "MS",
+  Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV",
+  "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+  "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK",
+  Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC",
+  "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT",
+  Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI",
+  Wyoming: "WY", "District of Columbia": "DC",
+};
+function parseState(location: string): string | null {
+  for (const name of Object.keys(US_STATES)) {
+    if (location.includes(name)) return name;
+  }
+  return null;
+}
+
+// ─── Toolbar (search, filters, sort, bulk, export, columns) ──────
+function ToolbarPanel(props: {
+  search: string;
+  setSearch: (s: string) => void;
+  sectorOptions: string[];
+  sector: string;
+  setSector: (s: string) => void;
+  protoOptions: string[];
+  proto: string;
+  setProto: (s: string) => void;
+  priority: string;
+  setPriority: (s: string) => void;
+  columns: Record<ColumnKey, boolean>;
+  setColumns: (c: Record<ColumnKey, boolean>) => void;
+  onBulk: () => void;
+  onRePoll: () => void;
+  onCsv: () => void;
+  onStix: () => void;
+  bulkPending: boolean;
+}) {
+  const [showCols, setShowCols] = useState(false);
+  return (
+    <div className="mb-3 space-y-2 rounded-md border border-border bg-card p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={props.search}
+          onChange={(e) => props.setSearch(e.target.value)}
+          placeholder="Search IP, org, location, protocol, sector…"
+          className="min-w-[220px] flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs"
+        />
+        <select
+          value={props.sector}
+          onChange={(e) => props.setSector(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+        >
+          {props.sectorOptions.map((s) => (
+            <option key={s} value={s}>{s === "all" ? "All sectors" : s}</option>
+          ))}
+        </select>
+        <select
+          value={props.proto}
+          onChange={(e) => props.setProto(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+        >
+          {props.protoOptions.map((s) => (
+            <option key={s} value={s}>{s === "all" ? "All protocols" : s}</option>
+          ))}
+        </select>
+        <select
+          value={props.priority}
+          onChange={(e) => props.setPriority(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+        >
+          <option value="all">All priorities</option>
+          <option value="P1 - CRITICAL">P1 Critical</option>
+          <option value="P2 - HIGH">P2 High</option>
+          <option value="P3 - MONITOR">P3 Monitor</option>
+          <option value="unscored">Unscored</option>
+        </select>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <button
+          onClick={props.onBulk}
+          disabled={props.bulkPending}
+          className="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 font-medium text-primary hover:bg-primary/20 disabled:opacity-50"
+        >
+          {props.bulkPending ? "Analyzing visible…" : "Bulk analyze visible"}
+        </button>
+        <button
+          onClick={props.onRePoll}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-3 py-1.5 hover:bg-accent"
+        >
+          <Radar size={12} /> Re-poll + diff
+        </button>
+        <button
+          onClick={props.onCsv}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-3 py-1.5 hover:bg-accent"
+        >
+          <Download size={12} /> CSV
+        </button>
+        <button
+          onClick={props.onStix}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-3 py-1.5 hover:bg-accent"
+        >
+          <Download size={12} /> STIX 2.1
+        </button>
+        <button
+          onClick={() => setShowCols((v) => !v)}
+          className="ml-auto rounded-md border border-border bg-background px-3 py-1.5 hover:bg-accent"
+        >
+          Columns
+        </button>
+      </div>
+      {showCols && (
+        <div className="flex flex-wrap gap-2 border-t border-border pt-2 text-xs">
+          {(Object.keys(props.columns) as ColumnKey[]).map((k) => (
+            <label key={k} className="flex items-center gap-1 font-mono uppercase text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={props.columns[k]}
+                onChange={(e) =>
+                  props.setColumns({ ...props.columns, [k]: e.target.checked })
+                }
+              />
+              {k}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SortHeader({
+  label, onClick, active, dir,
+}: { label: string; onClick: () => void; active: boolean; dir: "asc" | "desc" }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1 hover:text-foreground ${active ? "text-foreground" : ""}`}
+    >
+      {label}
+      <ArrowUpDown size={10} />
+      {active && <span className="text-[9px]">{dir}</span>}
+    </button>
+  );
+}
+
+// ─── US state heatmap (bar list) ──────────────────────────────
+function GeoHeatmap({ counts }: { counts: [string, number][] }) {
+  if (!counts.length) return null;
+  const max = counts[0][1];
+  return (
+    <div className="mt-6 rounded-lg border border-border bg-card p-4">
+      <h3 className="mb-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+        Geo Heatmap — Exposed Assets by US State
+      </h3>
+      <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+        {counts.slice(0, 20).map(([state, n]) => (
+          <li key={state} className="flex items-center gap-2 text-xs">
+            <span className="w-32 shrink-0 truncate font-mono text-muted-foreground">
+              {US_STATES[state] ?? "??"} · {state}
+            </span>
+            <div className="relative h-4 flex-1 overflow-hidden rounded bg-muted">
+              <div
+                className="h-full bg-destructive/70"
+                style={{ width: `${(n / max) * 100}%` }}
+              />
+            </div>
+            <span className="w-8 shrink-0 text-right font-mono tabular-nums text-foreground">
+              {n}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ─── Notifier config ──────────────────────────────────────────
+function NotifierPanel({
+  webhook, setWebhook,
+}: { webhook: WebhookConfig; setWebhook: (w: WebhookConfig) => void }) {
+  const [url, setUrl] = useState(webhook.url);
+  useEffect(() => setUrl(webhook.url), [webhook.url]);
+  return (
+    <div className="mt-6 rounded-lg border border-border bg-card p-4">
+      <h3 className="mb-2 flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+        <Bell size={12} /> P1 Notifier · Slack / Webhook
+      </h3>
+      <input
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        onBlur={() => setWebhook({ ...webhook, url })}
+        placeholder="https://hooks.slack.com/services/..."
+        className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs"
+      />
+      <label className="mt-2 flex items-center gap-2 text-xs">
+        <input
+          type="checkbox"
+          checked={webhook.enabled}
+          onChange={(e) => setWebhook({ url, enabled: e.target.checked })}
+        />
+        <span className="text-muted-foreground">
+          Fire on every new <span className="font-mono text-destructive">P1 - CRITICAL</span> brief
+        </span>
+      </label>
+    </div>
+  );
+}
+
+// ─── Watchlist ────────────────────────────────────────────────
+function WatchlistPanel({
+  watch, briefs, onOpen,
+}: {
+  watch: Record<string, { asset: OsintAsset; addedAt: string }>;
+  briefs: Record<string, ThreatBrief>;
+  onOpen: (id: string) => void;
+}) {
+  const items = Object.values(watch);
+  return (
+    <div className="mt-6 rounded-lg border border-border bg-card p-4">
+      <h3 className="mb-2 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+        ★ Watchlist ({items.length})
+      </h3>
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Star assets in the matrix to persist them here across sessions.
+        </p>
+      ) : (
+        <ul className="space-y-1 text-xs">
+          {items.map(({ asset }) => (
+            <li key={asset.id} className="flex items-center justify-between gap-2">
+              <button
+                onClick={() => onOpen(asset.id)}
+                className="truncate text-left font-mono text-primary underline-offset-2 hover:underline"
+              >
+                {asset.ip}:{asset.port}
+              </button>
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                {briefs[asset.id]?.priority ?? "unscored"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── Audit / timeline ─────────────────────────────────────────
+function AuditPanel({ events }: { events: AuditEvent[] }) {
+  return (
+    <div className="mt-6 rounded-lg border border-border bg-card p-4">
+      <h3 className="mb-2 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+        Analysis Timeline
+      </h3>
+      {events.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No events yet.</p>
+      ) : (
+        <ul className="max-h-56 space-y-1.5 overflow-y-auto pr-1 text-xs">
+          {events.slice(0, 40).map((e, i) => (
+            <li key={i} className="flex gap-2">
+              <span className="w-20 shrink-0 font-mono text-muted-foreground">
+                {new Date(e.at).toLocaleTimeString()}
+              </span>
+              <span
+                className={`w-16 shrink-0 font-mono uppercase ${
+                  e.kind === "analyze"
+                    ? "text-primary"
+                    : e.kind === "delta"
+                      ? "text-chart-4"
+                      : "text-muted-foreground"
+                }`}
+              >
+                {e.kind}
+              </span>
+              <span className="truncate">{e.detail}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
