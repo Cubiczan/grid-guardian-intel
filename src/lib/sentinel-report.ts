@@ -298,6 +298,7 @@ export type EvidenceExport = {
   json: string;
   markdown: string;
   signalsCsv: string;
+  snippetsCsv: string;
   title: string;
 };
 
