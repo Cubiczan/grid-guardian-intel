@@ -204,7 +204,7 @@ function SentinelDashboard() {
       if (sectorFilter !== "all" && a.sector !== sectorFilter) return false;
       if (protoFilter !== "all" && a.protocol !== protoFilter) return false;
       if (priorityFilter !== "all") {
-        const p = briefs[a.id]?.priority ?? "UNSCORED";
+        const p: string = briefs[a.id]?.priority ?? "UNSCORED";
         if (priorityFilter === "unscored" ? p !== "UNSCORED" : p !== priorityFilter)
           return false;
       }
