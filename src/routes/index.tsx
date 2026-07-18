@@ -1471,6 +1471,16 @@ function AttackEvidenceDialog({
                   Clear
                 </button>
               )}
+              <select
+                value={sortMode}
+                onChange={(e) => setSortMode(e.target.value as SortMode)}
+                className="h-7 rounded border border-border bg-background px-1.5 font-mono text-[10px] uppercase tracking-widest outline-none focus:border-primary"
+                title="Sort matched signals & snippets"
+              >
+                <option value="type">Sort: Source type</option>
+                <option value="confidence">Sort: Highest confidence</option>
+                <option value="recent">Sort: Newest in brief</option>
+              </select>
             </div>
             {q && (
               <div className="mt-1 font-mono text-[10px] text-muted-foreground">
