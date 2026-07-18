@@ -26,7 +26,132 @@ export type ThreatBrief = {
   priority: "P1 - CRITICAL" | "P2 - HIGH" | "P3 - MONITOR";
   sources: { url: string; title: string }[];
   generatedAt: string;
+  attack: AttackMapping[];
 };
+
+// ─────────────────────────────────────────────────────────────
+// MITRE ATT&CK mapping (keyword-driven).
+// Covers the ICS matrix + a handful of high-signal Enterprise
+// techniques commonly cited in ICS/SCADA threat intel. Matches
+// are made against the Tavily answer text — technique IDs and
+// keyword lists trigger a hit, and the technique's tactic is
+// derived from the ATT&CK matrix taxonomy.
+// ─────────────────────────────────────────────────────────────
+
+export type AttackMapping = {
+  matrix: "ics" | "enterprise";
+  techniqueId: string;
+  techniqueName: string;
+  tacticId: string;
+  tacticName: string;
+  url: string;
+  matched: string[]; // keywords / phrases that fired
+};
+
+type AttackDef = {
+  matrix: "ics" | "enterprise";
+  id: string;
+  name: string;
+  tacticId: string;
+  tacticName: string;
+  keywords: string[];
+};
+
+const ATTACK_TECHNIQUES: AttackDef[] = [
+  // --- ICS matrix ---
+  { matrix: "ics", id: "T0819", name: "Exploit Public-Facing Application", tacticId: "TA0108", tacticName: "Initial Access", keywords: ["exploit public-facing", "internet-exposed", "publicly exposed", "shodan", "censys"] },
+  { matrix: "ics", id: "T0883", name: "Internet Accessible Device", tacticId: "TA0108", tacticName: "Initial Access", keywords: ["internet accessible", "exposed to the internet", "reachable from the internet"] },
+  { matrix: "ics", id: "T0817", name: "Drive-by Compromise", tacticId: "TA0108", tacticName: "Initial Access", keywords: ["drive-by compromise", "drive by download", "watering hole"] },
+  { matrix: "ics", id: "T0865", name: "Spearphishing Attachment", tacticId: "TA0108", tacticName: "Initial Access", keywords: ["spearphish", "phishing", "malicious attachment"] },
+  { matrix: "ics", id: "T0866", name: "Exploitation of Remote Services", tacticId: "TA0108", tacticName: "Initial Access", keywords: ["exploitation of remote services", "rdp exploit", "vpn exploit"] },
+  { matrix: "ics", id: "T0886", name: "Remote Services", tacticId: "TA0109", tacticName: "Lateral Movement", keywords: ["remote services", "lateral movement", "smb", "rdp", "ssh"] },
+  { matrix: "ics", id: "T0855", name: "Unauthorized Command Message", tacticId: "TA0104", tacticName: "Impair Process Control", keywords: ["unauthorized command", "malicious modbus write", "rogue command", "spoofed command"] },
+  { matrix: "ics", id: "T0836", name: "Modify Parameter", tacticId: "TA0104", tacticName: "Impair Process Control", keywords: ["modify parameter", "setpoint change", "altered setpoint", "parameter tampering"] },
+  { matrix: "ics", id: "T0831", name: "Manipulation of Control", tacticId: "TA0106", tacticName: "Impact", keywords: ["manipulation of control", "manipulated control", "hijack control"] },
+  { matrix: "ics", id: "T0827", name: "Loss of Control", tacticId: "TA0106", tacticName: "Impact", keywords: ["loss of control", "operator locked out"] },
+  { matrix: "ics", id: "T0828", name: "Loss of Productivity and Revenue", tacticId: "TA0106", tacticName: "Impact", keywords: ["outage", "downtime", "production halt", "shutdown"] },
+  { matrix: "ics", id: "T0826", name: "Loss of Availability", tacticId: "TA0106", tacticName: "Impact", keywords: ["loss of availability", "denial of service", "ddos", "service disruption"] },
+  { matrix: "ics", id: "T0879", name: "Damage to Property", tacticId: "TA0106", tacticName: "Impact", keywords: ["physical damage", "equipment damage", "damaged turbine", "burst pipe", "explosion"] },
+  { matrix: "ics", id: "T0880", name: "Loss of Safety", tacticId: "TA0106", tacticName: "Impact", keywords: ["loss of safety", "safety system", "sis bypass", "triton", "trisis"] },
+  { matrix: "ics", id: "T0809", name: "Data Destruction", tacticId: "TA0105", tacticName: "Inhibit Response Function", keywords: ["wiper", "data destruction", "erase firmware", "brick"] },
+  { matrix: "ics", id: "T0814", name: "Denial of Service", tacticId: "TA0105", tacticName: "Inhibit Response Function", keywords: ["denial of service on plc", "flood the controller", "dos plc"] },
+  { matrix: "ics", id: "T0846", name: "Remote System Discovery", tacticId: "TA0102", tacticName: "Discovery", keywords: ["network scan", "remote system discovery", "reconnaissance scan", "enumerate hosts"] },
+  { matrix: "ics", id: "T0842", name: "Network Sniffing", tacticId: "TA0102", tacticName: "Discovery", keywords: ["network sniffing", "packet capture", "pcap", "eavesdrop"] },
+  { matrix: "ics", id: "T0858", name: "Change Operating Mode", tacticId: "TA0110", tacticName: "Evasion", keywords: ["change operating mode", "run/program switch", "put plc in stop", "program mode"] },
+  { matrix: "ics", id: "T0857", name: "System Firmware", tacticId: "TA0111", tacticName: "Persistence", keywords: ["malicious firmware", "firmware implant", "firmware backdoor"] },
+  { matrix: "ics", id: "T0889", name: "Modify Program", tacticId: "TA0111", tacticName: "Persistence", keywords: ["modify plc program", "ladder logic modification", "rogue ladder logic"] },
+  { matrix: "ics", id: "T0891", name: "Hardcoded Credentials", tacticId: "TA0107", tacticName: "Lateral Movement", keywords: ["hardcoded credential", "default password", "vendor backdoor"] },
+  // --- Enterprise techniques cited often in ICS reporting ---
+  { matrix: "enterprise", id: "T1190", name: "Exploit Public-Facing Application", tacticId: "TA0001", tacticName: "Initial Access", keywords: ["cve-", "0-day", "zero-day", "actively exploited", "rce vulnerability"] },
+  { matrix: "enterprise", id: "T1133", name: "External Remote Services", tacticId: "TA0001", tacticName: "Initial Access", keywords: ["exposed vpn", "citrix", "fortinet vpn", "pulse secure", "ivanti"] },
+  { matrix: "enterprise", id: "T1486", name: "Data Encrypted for Impact", tacticId: "TA0040", tacticName: "Impact", keywords: ["ransomware", "encrypted files", "ransom note", "lockbit", "blackcat", "alphv", "clop"] },
+  { matrix: "enterprise", id: "T1078", name: "Valid Accounts", tacticId: "TA0001", tacticName: "Initial Access", keywords: ["stolen credential", "credential stuffing", "leaked password", "valid account"] },
+  { matrix: "enterprise", id: "T1071", name: "Application Layer Protocol", tacticId: "TA0011", tacticName: "Command and Control", keywords: ["command and control", "c2 server", "c&c", "beaconing"] },
+  { matrix: "enterprise", id: "T1490", name: "Inhibit System Recovery", tacticId: "TA0040", tacticName: "Impact", keywords: ["delete backups", "shadow copies", "inhibit recovery", "disabled backup"] },
+];
+
+// Named threat actors → additional technique hints.
+const ACTOR_TECHNIQUES: Record<string, string[]> = {
+  sandworm: ["T0836", "T0879", "T0826", "T0809"],
+  volt_typhoon: ["T1133", "T1078", "T0883"],
+  triton: ["T0880", "T0857"],
+  trisis: ["T0880", "T0857"],
+  industroyer: ["T0836", "T0855", "T0826"],
+  crashoverride: ["T0836", "T0855", "T0826"],
+  incontroller: ["T0855", "T0836", "T0889"],
+  pipedream: ["T0855", "T0836", "T0889"],
+  blackenergy: ["T0866", "T0826"],
+  lockbit: ["T1486", "T1490"],
+  alphv: ["T1486", "T1490"],
+  blackcat: ["T1486", "T1490"],
+};
+
+export function extractAttack(text: string): AttackMapping[] {
+  const hay = ` ${text.toLowerCase()} `;
+  const byId = new Map<string, AttackMapping>();
+  const push = (def: AttackDef, kw: string) => {
+    const key = `${def.matrix}:${def.id}`;
+    const existing = byId.get(key);
+    if (existing) {
+      if (!existing.matched.includes(kw)) existing.matched.push(kw);
+      return;
+    }
+    byId.set(key, {
+      matrix: def.matrix,
+      techniqueId: def.id,
+      techniqueName: def.name,
+      tacticId: def.tacticId,
+      tacticName: def.tacticName,
+      url:
+        def.matrix === "ics"
+          ? `https://attack.mitre.org/techniques/${def.id}/`
+          : `https://attack.mitre.org/techniques/${def.id}/`,
+      matched: [kw],
+    });
+  };
+  for (const def of ATTACK_TECHNIQUES) {
+    // Direct technique ID reference wins.
+    if (hay.includes(def.id.toLowerCase())) push(def, def.id);
+    for (const kw of def.keywords) {
+      if (hay.includes(kw.toLowerCase())) push(def, kw);
+    }
+  }
+  // Actor-derived inferences.
+  for (const [actor, techIds] of Object.entries(ACTOR_TECHNIQUES)) {
+    const needle = actor.replace(/_/g, " ");
+    if (!hay.includes(needle)) continue;
+    for (const tid of techIds) {
+      const def = ATTACK_TECHNIQUES.find((d) => d.id === tid);
+      if (def) push(def, `actor:${needle}`);
+    }
+  }
+  // Deterministic order: tactic then technique id.
+  return Array.from(byId.values()).sort((a, b) =>
+    a.tacticName === b.tacticName
+      ? a.techniqueId.localeCompare(b.techniqueId)
+      : a.tacticName.localeCompare(b.tacticName),
+  );
+}
 
 // ICS/SCADA protocol fingerprints — used to label Censys hits.
 const PROTOCOL_BY_PORT: Record<number, { protocol: string; sector: string }> = {
@@ -241,6 +366,7 @@ export const analyzeAsset = createServerFn({ method: "POST" })
       priority,
       sources: (tavily.results ?? []).map((r) => ({ url: r.url, title: r.title })),
       generatedAt: new Date().toISOString(),
+      attack: extractAttack(answer),
     };
   });
 
