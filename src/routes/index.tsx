@@ -30,6 +30,11 @@ import {
   type WebhookConfig,
 } from "@/lib/sentinel-storage";
 import { assetsToCsv, assetsToStix, downloadText } from "@/lib/sentinel-export";
+import {
+  buildSocMarkdown,
+  downloadMarkdown,
+  openPrintWindow,
+} from "@/lib/sentinel-report";
 
 const assetsQuery = (query?: string, cursor?: string) =>
   queryOptions({
