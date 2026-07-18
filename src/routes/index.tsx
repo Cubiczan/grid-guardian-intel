@@ -1431,6 +1431,7 @@ function BriefPanel({
           {brief.summary}
         </p>
       </div>
+      <AttackPanel attack={brief.attack ?? []} />
       {brief.sources.length > 0 && (
         <div>
           <div className="text-xs uppercase tracking-widest text-muted-foreground">
