@@ -1254,6 +1254,52 @@ function AttackChip({ t, onOpen }: { t: AttackMapping; onOpen: (t: AttackMapping
   );
 }
 
+function FacetRow({
+  label,
+  options,
+  selected,
+  onToggle,
+  exclusive,
+  hint,
+}: {
+  label: string;
+  options: { id: string; label: string }[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  exclusive?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className="mr-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
+      {options.map((o) => {
+        const active = selected.has(o.id);
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onToggle(o.id)}
+            className={`rounded-sm border px-1.5 py-[1px] font-mono text-[10px] uppercase tracking-widest transition-colors ${
+              active
+                ? "border-primary/60 bg-primary/15 text-primary"
+                : "border-border bg-background text-muted-foreground hover:bg-accent"
+            }`}
+            aria-pressed={active}
+            title={exclusive ? `Set ${label} to ${o.label}` : `Toggle ${o.label}`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+      {hint && (
+        <span className="ml-1 font-mono text-[10px] text-muted-foreground/80">{hint}</span>
+      )}
+    </div>
+  );
+}
+
 function AttackEvidenceDialog({
   technique,
   brief,
@@ -1264,7 +1310,6 @@ function AttackEvidenceDialog({
   onClose: () => void;
 }) {
   const open = technique !== null;
-  void 0;
   if (!technique) {
     return (
       <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
