@@ -1056,21 +1056,7 @@ function AttackPanel({
             </div>
             <div className="flex flex-wrap gap-1">
               {g.items.map((t) => (
-                <a
-                  key={`${t.matrix}:${t.techniqueId}`}
-                  href={t.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={`${t.techniqueName} — matched: ${t.matched.join(", ")}`}
-                  className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] hover:bg-accent ${
-                    t.matrix === "ics"
-                      ? "border-chart-4/40 bg-chart-4/10 text-chart-4"
-                      : "border-primary/40 bg-primary/10 text-primary"
-                  }`}
-                >
-                  <span className="font-semibold">{t.techniqueId}</span>
-                  <span className="text-foreground/80">{t.techniqueName}</span>
-                </a>
+                <AttackChip key={`${t.matrix}:${t.techniqueId}`} t={t} />
               ))}
             </div>
           </div>
