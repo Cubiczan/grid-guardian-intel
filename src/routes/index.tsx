@@ -1264,6 +1264,7 @@ function AttackEvidenceDialog({
   onClose: () => void;
 }) {
   const open = technique !== null;
+  void 0;
   if (!technique) {
     return (
       <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
