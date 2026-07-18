@@ -688,6 +688,48 @@ function ToolbarPanel(props: {
         >
           {props.bulkPending ? "Analyzing visible…" : "Bulk analyze visible"}
         </button>
+        <div
+          className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] text-muted-foreground"
+          title={`Per row: up to ${rc.attempts} attempts with exponential backoff starting at ${rc.baseMs}ms (max wait before last retry ≈ ${maxDelaySec}s).`}
+        >
+          <label className="flex items-center gap-1">
+            <span className="uppercase tracking-wider">Retries</span>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={rc.attempts}
+              disabled={props.bulkPending}
+              onChange={(e) =>
+                props.setRetryConfig({
+                  ...rc,
+                  attempts: Math.max(1, Math.min(10, Number(e.target.value) || 1)),
+                })
+              }
+              className="w-12 rounded border border-border bg-card px-1 py-0.5 text-right text-foreground disabled:opacity-50"
+            />
+          </label>
+          <span className="text-border">·</span>
+          <label className="flex items-center gap-1">
+            <span className="uppercase tracking-wider">Backoff</span>
+            <input
+              type="number"
+              min={100}
+              max={10000}
+              step={100}
+              value={rc.baseMs}
+              disabled={props.bulkPending}
+              onChange={(e) =>
+                props.setRetryConfig({
+                  ...rc,
+                  baseMs: Math.max(100, Math.min(10000, Number(e.target.value) || 100)),
+                })
+              }
+              className="w-16 rounded border border-border bg-card px-1 py-0.5 text-right text-foreground disabled:opacity-50"
+            />
+            <span>ms</span>
+          </label>
+        </div>
         <button
           onClick={props.onRePoll}
           className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-3 py-1.5 hover:bg-accent"
