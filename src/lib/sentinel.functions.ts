@@ -93,16 +93,27 @@ export type AssetFeed = {
   assets: OsintAsset[];
   source: "censys" | "mock";
   query: string;
+  nextCursor?: string;
+  pageSize: number;
   error?: string;
 };
 
+const PAGE_SIZE = 25;
+
 export const listExposedAssets = createServerFn({ method: "GET" })
-  .inputValidator((input?: { query?: string }) => input ?? {})
+  .inputValidator((input?: { query?: string; cursor?: string }) => input ?? {})
   .handler(async ({ data }): Promise<AssetFeed> => {
     const query = data.query?.trim() || DEFAULT_CENSYS_QUERY;
+    const cursor = data.cursor?.trim() || undefined;
     const apiKey = process.env.CENSYS_API_KEY;
     if (!apiKey) {
-      return { assets: MOCK_ASSETS, source: "mock", query, error: "Missing CENSYS_API_KEY" };
+      return {
+        assets: MOCK_ASSETS,
+        source: "mock",
+        query,
+        pageSize: PAGE_SIZE,
+        error: "Missing CENSYS_API_KEY",
+      };
     }
     try {
       const res = await fetch("https://api.platform.censys.io/v3/global/search/query", {
@@ -111,7 +122,11 @@ export const listExposedAssets = createServerFn({ method: "GET" })
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ query, page_size: 25 }),
+        body: JSON.stringify({
+          query,
+          page_size: PAGE_SIZE,
+          ...(cursor ? { cursor } : {}),
+        }),
       });
       if (!res.ok) {
         const body = await res.text();
@@ -120,30 +135,47 @@ export const listExposedAssets = createServerFn({ method: "GET" })
           assets: MOCK_ASSETS,
           source: "mock",
           query,
+          pageSize: PAGE_SIZE,
           error: `Censys request failed [${res.status}] — showing mock feed`,
         };
       }
       const json = (await res.json()) as {
-        result?: { hits?: CensysHit[] };
+        result?: {
+          hits?: CensysHit[];
+          next_page_token?: string;
+          nextCursor?: string;
+          links?: { next?: string };
+        };
         hits?: CensysHit[];
+        next_page_token?: string;
+        nextCursor?: string;
       };
       const hits = json.result?.hits ?? json.hits ?? [];
+      const nextCursor =
+        json.result?.nextCursor ||
+        json.result?.next_page_token ||
+        json.result?.links?.next ||
+        json.nextCursor ||
+        json.next_page_token ||
+        undefined;
       const assets = normalizeCensys(hits);
-      if (!assets.length) {
+      if (!assets.length && !cursor) {
         return {
           assets: MOCK_ASSETS,
           source: "mock",
           query,
+          pageSize: PAGE_SIZE,
           error: "Censys returned no hits — showing mock feed",
         };
       }
-      return { assets, source: "censys", query };
+      return { assets, source: "censys", query, nextCursor, pageSize: PAGE_SIZE };
     } catch (err) {
       console.error("Censys ingestion failed", err);
       return {
         assets: MOCK_ASSETS,
         source: "mock",
         query,
+        pageSize: PAGE_SIZE,
         error: (err as Error).message,
       };
     }
