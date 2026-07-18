@@ -490,11 +490,60 @@ export function buildTechniqueEvidence(
   for (const a of actors) pushSignal("actor", a, `actor:${a}`);
   const signalsCsv = csvRows.map((r) => r.map(csvCell).join(",")).join("\n");
 
+  // ─── Source snippets CSV (one row per extracted snippet) ─────
+  const snippetRows: string[][] = [
+    [
+      "keyword",
+      "signal_type",
+      "snippet",
+      "technique_id",
+      "technique_name",
+      "tactic_id",
+      "tactic_name",
+      "matrix",
+      "confidence_score",
+      "confidence_band",
+      "asset_id",
+      "asset_org",
+      "asset_location",
+      "brief_generated_at",
+      "extracted_at",
+    ],
+  ];
+  for (const s of snippets) {
+    const isActor = s.keyword.startsWith("actor:");
+    const value = isActor ? s.keyword.slice(6) : s.keyword;
+    const type = isActor
+      ? "actor"
+      : value.toLowerCase() === technique.techniqueId.toLowerCase()
+        ? "id_reference"
+        : "keyword";
+    snippetRows.push([
+      value,
+      type,
+      s.snippet.replace(/\s+/g, " ").trim(),
+      technique.techniqueId,
+      technique.techniqueName,
+      technique.tacticId,
+      technique.tacticName,
+      technique.matrix,
+      String(conf.score),
+      conf.band,
+      brief?.asset.id ?? "",
+      brief?.asset.org ?? "",
+      brief?.asset.location ?? "",
+      briefTs,
+      generatedAt,
+    ]);
+  }
+  const snippetsCsv = snippetRows.map((r) => r.map(csvCell).join(",")).join("\n");
+
   return {
     filenameBase,
     json: JSON.stringify(jsonObj, null, 2),
     markdown: lines.join("\n"),
     signalsCsv,
+    snippetsCsv,
     title,
   };
 }
