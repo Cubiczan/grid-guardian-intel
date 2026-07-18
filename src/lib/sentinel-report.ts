@@ -1,4 +1,5 @@
 import type { ThreatBrief, OsintAsset, KevMatch, AttackMapping } from "./sentinel.functions";
+import { scoreAttack, extractSnippets } from "./sentinel.functions";
 import type { AuditEvent } from "./sentinel-storage";
 
 export type SocReportInput = {
