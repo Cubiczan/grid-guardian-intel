@@ -9,10 +9,12 @@ import {
   getReconToolkit,
   getKevForProtocols,
   sendWebhook,
+  scoreAttack,
   type ThreatBrief,
   type OsintAsset,
   type ReconToolkit,
   type KevReport,
+  type AttackMapping,
 } from "@/lib/sentinel.functions";
 import {
   loadBriefs,
