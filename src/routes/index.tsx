@@ -821,6 +821,87 @@ function GeoHeatmap({ counts }: { counts: [string, number][] }) {
   );
 }
 
+function AttackPanel({
+  attack,
+}: {
+  attack: import("@/lib/sentinel.functions").AttackMapping[];
+}) {
+  if (!attack.length) {
+    return (
+      <div>
+        <div className="text-xs uppercase tracking-widest text-muted-foreground">
+          MITRE ATT&amp;CK
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          No techniques matched from this brief.
+        </div>
+      </div>
+    );
+  }
+  // Group by tactic.
+  const groups = new Map<
+    string,
+    { tacticId: string; tacticName: string; items: typeof attack }
+  >();
+  for (const a of attack) {
+    const g = groups.get(a.tacticId) ?? {
+      tacticId: a.tacticId,
+      tacticName: a.tacticName,
+      items: [] as typeof attack,
+    };
+    g.items.push(a);
+    groups.set(a.tacticId, g);
+  }
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <div className="text-xs uppercase tracking-widest text-muted-foreground">
+          MITRE ATT&amp;CK · {attack.length}
+        </div>
+        <a
+          href="https://attack.mitre.org/matrices/ics/"
+          target="_blank"
+          rel="noreferrer"
+          className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-primary"
+        >
+          ICS Matrix ↗
+        </a>
+      </div>
+      <div className="mt-2 space-y-2">
+        {Array.from(groups.values()).map((g) => (
+          <div key={g.tacticId} className="rounded-md border border-border bg-background/40 p-2">
+            <div className="mb-1 flex items-baseline justify-between">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+                {g.tacticName}
+              </div>
+              <div className="font-mono text-[10px] text-muted-foreground">{g.tacticId}</div>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {g.items.map((t) => (
+                <a
+                  key={`${t.matrix}:${t.techniqueId}`}
+                  href={t.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={`${t.techniqueName} — matched: ${t.matched.join(", ")}`}
+                  className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] hover:bg-accent ${
+                    t.matrix === "ics"
+                      ? "border-chart-4/40 bg-chart-4/10 text-chart-4"
+                      : "border-primary/40 bg-primary/10 text-primary"
+                  }`}
+                >
+                  <span className="font-semibold">{t.techniqueId}</span>
+                  <span className="text-foreground/80">{t.techniqueName}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Notifier config ──────────────────────────────────────────
 function NotifierPanel({
   webhook, setWebhook,
