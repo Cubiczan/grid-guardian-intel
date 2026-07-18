@@ -14,10 +14,10 @@ into a single SOC-ready dossier per asset.
 ## Screenshots
 
 ### Threat Matrix Dashboard
-![Sentinel-OSINT Threat Matrix Dashboard](/__l5e/assets-v1/83c7f29a-64b0-4f81-afc8-86034f6e7ec8/dashboard.png)
+![Sentinel-OSINT Threat Matrix Dashboard](docs/screenshots/dashboard.png)
 
 ### Geo Situational Awareness Map
-![Sentinel-OSINT Geo Map](/__l5e/assets-v1/0c76dca9-f756-4f0b-a35d-823e8ee79b67/map.png)
+![Sentinel-OSINT Geo Map](docs/screenshots/map.png)
 
 ---
 
