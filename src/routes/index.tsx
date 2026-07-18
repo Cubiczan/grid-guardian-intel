@@ -118,8 +118,14 @@ function SentinelDashboard() {
   });
   const [columns, setColumns] = useState<Record<ColumnKey, boolean>>(DEFAULT_COLUMNS);
 
-  // Bulk analyze queue: per-asset status.
-  const [bulkStatus, setBulkStatus] = useState<Record<string, "queued" | "running" | "done" | "error">>({});
+  // Bulk analyze queue: per-asset status with retry metadata.
+  type BulkState =
+    | { status: "queued" }
+    | { status: "running"; attempt: number }
+    | { status: "retrying"; attempt: number; nextInMs: number; lastError: string }
+    | { status: "done" }
+    | { status: "error"; attempts: number; reason: string };
+  const [bulkStatus, setBulkStatus] = useState<Record<string, BulkState>>({});
   const bulkRunning = useRef(false);
 
   // KEV enrichment: proto → matches[]
@@ -239,20 +245,53 @@ function SentinelDashboard() {
       s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
     );
 
-  // Bulk analyze visible rows.
+  // Bulk analyze visible rows with exponential backoff retry.
   const runBulk = async () => {
     if (bulkRunning.current) return;
     bulkRunning.current = true;
     const queue = visibleAssets.filter((a) => !briefs[a.id]);
-    setBulkStatus(Object.fromEntries(queue.map((a) => [a.id, "queued"])));
+    setBulkStatus(
+      Object.fromEntries(queue.map((a) => [a.id, { status: "queued" } as BulkState])),
+    );
+    const MAX_ATTEMPTS = 4;
+    const BASE_MS = 800;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const errMsg = (e: unknown) => {
+      if (e instanceof Error) return e.message || e.name;
+      if (typeof e === "string") return e;
+      try { return JSON.stringify(e); } catch { return "unknown error"; }
+    };
     for (const asset of queue) {
-      setBulkStatus((s) => ({ ...s, [asset.id]: "running" }));
-      try {
-        const brief = await analyzeFn({ data: { asset } });
-        handleBrief(brief);
-        setBulkStatus((s) => ({ ...s, [asset.id]: "done" }));
-      } catch {
-        setBulkStatus((s) => ({ ...s, [asset.id]: "error" }));
+      let lastErr = "unknown error";
+      let success = false;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        setBulkStatus((s) => ({ ...s, [asset.id]: { status: "running", attempt } }));
+        try {
+          const brief = await analyzeFn({ data: { asset } });
+          handleBrief(brief);
+          setBulkStatus((s) => ({ ...s, [asset.id]: { status: "done" } }));
+          success = true;
+          break;
+        } catch (e) {
+          lastErr = errMsg(e);
+          if (attempt < MAX_ATTEMPTS) {
+            // Exponential backoff with jitter: 800, 1600, 3200 ms (+/- 25%).
+            const base = BASE_MS * 2 ** (attempt - 1);
+            const jitter = base * (Math.random() * 0.5 - 0.25);
+            const wait = Math.round(base + jitter);
+            setBulkStatus((s) => ({
+              ...s,
+              [asset.id]: { status: "retrying", attempt, nextInMs: wait, lastError: lastErr },
+            }));
+            await sleep(wait);
+          }
+        }
+      }
+      if (!success) {
+        setBulkStatus((s) => ({
+          ...s,
+          [asset.id]: { status: "error", attempts: MAX_ATTEMPTS, reason: lastErr },
+        }));
       }
     }
     bulkRunning.current = false;
