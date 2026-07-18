@@ -90,6 +90,55 @@ export function scoreAttack(m: Pick<AttackMapping, "techniqueId" | "matched">): 
   return { score, band, rationale: factors.join(" · "), factors };
 }
 
+// ─── Evidence snippet extraction ─────────────────────────────
+// For a given brief summary and a set of matched keywords, pull
+// short contextual snippets so the UI can show *why* a technique
+// fired. Actor-derived matches (prefix `actor:`) still resolve
+// by the actor name.
+export type AttackSnippet = {
+  keyword: string;
+  snippet: string; // plain text with surrounding context
+  start: number; // offset in original text of the match
+  end: number;
+};
+
+export function extractSnippets(
+  text: string,
+  keywords: string[],
+  opts: { radius?: number; maxPerKeyword?: number } = {},
+): AttackSnippet[] {
+  const radius = opts.radius ?? 110;
+  const maxPerKeyword = opts.maxPerKeyword ?? 2;
+  if (!text) return [];
+  const hay = text.toLowerCase();
+  const out: AttackSnippet[] = [];
+  const seen = new Set<string>();
+  for (const raw of keywords) {
+    const needle = raw.startsWith("actor:") ? raw.slice(6) : raw;
+    if (!needle) continue;
+    const q = needle.toLowerCase();
+    let from = 0;
+    let hits = 0;
+    while (hits < maxPerKeyword) {
+      const idx = hay.indexOf(q, from);
+      if (idx === -1) break;
+      const s = Math.max(0, idx - radius);
+      const e = Math.min(text.length, idx + q.length + radius);
+      const prefix = s > 0 ? "…" : "";
+      const suffix = e < text.length ? "…" : "";
+      const snippet = `${prefix}${text.slice(s, e).trim()}${suffix}`;
+      const key = `${raw}:${idx}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push({ keyword: raw, snippet, start: idx, end: idx + q.length });
+      }
+      from = idx + q.length;
+      hits += 1;
+    }
+  }
+  return out;
+}
+
 type AttackDef = {
   matrix: "ics" | "enterprise";
   id: string;
