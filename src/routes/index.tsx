@@ -1254,6 +1254,52 @@ function AttackChip({ t, onOpen }: { t: AttackMapping; onOpen: (t: AttackMapping
   );
 }
 
+function FacetRow({
+  label,
+  options,
+  selected,
+  onToggle,
+  exclusive,
+  hint,
+}: {
+  label: string;
+  options: { id: string; label: string }[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  exclusive?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className="mr-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
+      {options.map((o) => {
+        const active = selected.has(o.id);
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onToggle(o.id)}
+            className={`rounded-sm border px-1.5 py-[1px] font-mono text-[10px] uppercase tracking-widest transition-colors ${
+              active
+                ? "border-primary/60 bg-primary/15 text-primary"
+                : "border-border bg-background text-muted-foreground hover:bg-accent"
+            }`}
+            aria-pressed={active}
+            title={exclusive ? `Set ${label} to ${o.label}` : `Toggle ${o.label}`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+      {hint && (
+        <span className="ml-1 font-mono text-[10px] text-muted-foreground/80">{hint}</span>
+      )}
+    </div>
+  );
+}
+
 function AttackEvidenceDialog({
   technique,
   brief,
@@ -1282,17 +1328,58 @@ function AttackEvidenceDialog({
   const [filter, setFilter] = useState("");
   const q = filter.trim().toLowerCase();
   const matchStr = (s: string) => !q || s.toLowerCase().includes(q);
-  const idHitVisible = idHit && (matchStr(technique.techniqueId) || matchStr("id reference"));
   const keywordMatches = technique.matched.filter(
     (k) => k.toLowerCase() !== technique.techniqueId.toLowerCase() && !k.startsWith("actor:"),
   );
-  const visibleKeywords = keywordMatches.filter(matchStr);
-  const visibleActors = actorMatches.filter((k) => matchStr(k.replace(/^actor:/, "")));
-  const visibleSnippets = snippets.filter(
-    (s) => matchStr(s.snippet) || matchStr(s.keyword.replace(/^actor:/, "")),
+
+  // ─── Facets: source type, confidence band, relative age ──
+  type SrcType = "id" | "keyword" | "actor";
+  type Band = "high" | "medium" | "low";
+  const [typeSet, setTypeSet] = useState<Set<SrcType>>(
+    () => new Set<SrcType>(["id", "keyword", "actor"]),
   );
+  const [bandSet, setBandSet] = useState<Set<Band>>(
+    () => new Set<Band>(["high", "medium", "low"]),
+  );
+  const [rangeMs, setRangeMs] = useState<number | null>(null);
+  const toggle = <T,>(set: Set<T>, val: T, setter: (s: Set<T>) => void) => {
+    const next = new Set(set);
+    if (next.has(val)) next.delete(val); else next.add(val);
+    setter(next);
+  };
+  const bandGated = !bandSet.has(conf.band as Band);
+  const briefAgeMs = brief?.generatedAt
+    ? Date.now() - new Date(brief.generatedAt).getTime()
+    : null;
+  const rangeGated =
+    rangeMs !== null && (briefAgeMs === null || briefAgeMs > rangeMs);
+  const facetGated = bandGated || rangeGated;
+
+  const snippetKind = (kw: string): SrcType =>
+    kw.startsWith("actor:") ? "actor"
+    : kw.toLowerCase() === technique.techniqueId.toLowerCase() ? "id"
+    : "keyword";
+
+  const idHitVisible =
+    !facetGated && idHit && typeSet.has("id") &&
+    (matchStr(technique.techniqueId) || matchStr("id reference"));
+  const visibleKeywords = facetGated || !typeSet.has("keyword")
+    ? []
+    : keywordMatches.filter(matchStr);
+  const visibleActors = facetGated || !typeSet.has("actor")
+    ? []
+    : actorMatches.filter((k) => matchStr(k.replace(/^actor:/, "")));
+  const visibleSnippets = facetGated
+    ? []
+    : snippets.filter(
+        (s) =>
+          typeSet.has(snippetKind(s.keyword)) &&
+          (matchStr(s.snippet) || matchStr(s.keyword.replace(/^actor:/, ""))),
+      );
   const visibleSourceCount =
     (idHitVisible ? 1 : 0) + visibleKeywords.length + visibleActors.length;
+  const anyFacetActive =
+    typeSet.size < 3 || bandSet.size < 3 || rangeMs !== null;
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
@@ -1344,6 +1431,64 @@ function AttackEvidenceDialog({
                 {visibleSnippets.length === 1 ? "" : "s"}
               </div>
             )}
+            <div className="mt-2 space-y-1.5">
+              <FacetRow
+                label="Source type"
+                options={[
+                  { id: "id", label: "ID ref" },
+                  { id: "keyword", label: "Keyword" },
+                  { id: "actor", label: "Actor" },
+                ]}
+                selected={typeSet}
+                onToggle={(v) => toggle(typeSet, v as SrcType, setTypeSet)}
+              />
+              <FacetRow
+                label="Confidence"
+                options={[
+                  { id: "high", label: "High" },
+                  { id: "medium", label: "Med" },
+                  { id: "low", label: "Low" },
+                ]}
+                selected={bandSet}
+                onToggle={(v) => toggle(bandSet, v as Band, setBandSet)}
+                hint={`Technique band: ${conf.band.toUpperCase()}`}
+              />
+              <FacetRow
+                label="Age"
+                options={[
+                  { id: "3600000", label: "1h" },
+                  { id: "86400000", label: "24h" },
+                  { id: "604800000", label: "7d" },
+                  { id: "2592000000", label: "30d" },
+                  { id: "all", label: "All" },
+                ]}
+                selected={new Set([rangeMs === null ? "all" : String(rangeMs)])}
+                onToggle={(v) => setRangeMs(v === "all" ? null : Number(v))}
+                exclusive
+                hint={
+                  briefAgeMs !== null ? `Brief age: ${formatRelative(brief!.generatedAt)}` : undefined
+                }
+              />
+              {anyFacetActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTypeSet(new Set(["id", "keyword", "actor"]));
+                    setBandSet(new Set(["high", "medium", "low"]));
+                    setRangeMs(null);
+                  }}
+                  className="rounded border border-border bg-background px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest hover:bg-accent"
+                >
+                  Reset facets
+                </button>
+              )}
+              {facetGated && (
+                <div className="rounded border border-dashed border-border/70 bg-muted/30 px-2 py-1 font-mono text-[10px] text-muted-foreground">
+                  {bandGated && `Hidden by confidence facet (technique band ${conf.band.toUpperCase()}). `}
+                  {rangeGated && `Hidden by age facet (brief older than selected window).`}
+                </div>
+              )}
+            </div>
           </div>
 
           <section>
