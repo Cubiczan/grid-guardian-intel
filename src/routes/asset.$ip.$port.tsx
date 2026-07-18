@@ -68,6 +68,7 @@ function SharedBrief() {
 
   const analyzeFn = useServerFn(analyzeAsset);
   const [brief, setBrief] = useState<ThreatBrief | undefined>(undefined);
+  const [activeTech, setActiveTech] = useState<AttackMapping | null>(null);
   const mut = useMutation({
     mutationFn: () => analyzeFn({ data: { asset } }),
     onSuccess: (b) => {
@@ -149,12 +150,11 @@ function SharedBrief() {
                           ? "border-chart-3/50 bg-chart-3/10 text-chart-3"
                           : "border-muted-foreground/40 bg-muted/40 text-muted-foreground";
                     return (
-                      <a
+                      <button
+                        type="button"
                         key={`${t.matrix}:${t.techniqueId}`}
-                        href={t.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={`${t.tacticName} · ${t.techniqueName}\nConfidence ${conf.score}% (${conf.band})\nRationale: ${conf.rationale}`}
+                        onClick={() => setActiveTech(t)}
+                        title={`${t.tacticName} · ${t.techniqueName} — click for evidence`}
                         className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] hover:bg-accent ${
                           t.matrix === "ics"
                             ? "border-chart-4/40 bg-chart-4/10 text-chart-4"
@@ -168,7 +168,7 @@ function SharedBrief() {
                         >
                           {conf.score}%
                         </span>
-                      </a>
+                      </button>
                     );
                   })}
                 </div>
@@ -193,6 +193,109 @@ function SharedBrief() {
           </article>
         )}
       </main>
+      <SharedEvidenceDialog technique={activeTech} brief={brief} onClose={() => setActiveTech(null)} />
     </div>
+  );
+}
+
+function SharedEvidenceDialog({
+  technique,
+  brief,
+  onClose,
+}: {
+  technique: AttackMapping | null;
+  brief: ThreatBrief | undefined;
+  onClose: () => void;
+}) {
+  const open = technique !== null;
+  if (!technique) {
+    return (
+      <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+        <DialogContent />
+      </Dialog>
+    );
+  }
+  const conf = scoreAttack(technique);
+  const snippets = brief?.summary
+    ? extractSnippets(brief.summary, technique.matched, { radius: 120, maxPerKeyword: 2 })
+    : [];
+  const bandStyle =
+    conf.band === "high"
+      ? "border-destructive/60 bg-destructive/15 text-destructive"
+      : conf.band === "medium"
+        ? "border-chart-3/50 bg-chart-3/10 text-chart-3"
+        : "border-muted-foreground/40 bg-muted/40 text-muted-foreground";
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <DialogTitle className="font-mono">
+                {technique.techniqueId} · {technique.techniqueName}
+              </DialogTitle>
+              <DialogDescription>
+                Tactic: {technique.tacticName} ({technique.tacticId}) ·{" "}
+                {technique.matrix === "ics" ? "ICS Matrix" : "Enterprise Matrix"}
+              </DialogDescription>
+            </div>
+            <span className={`shrink-0 rounded-sm border px-1.5 py-[1px] text-[10px] font-semibold tabular-nums ${bandStyle}`}>
+              {conf.score}% · {conf.band.toUpperCase()}
+            </span>
+          </div>
+        </DialogHeader>
+        <div className="space-y-4 text-sm">
+          <section>
+            <div className="mb-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Rationale</div>
+            <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed">
+              {conf.factors.map((f, i) => <li key={i}>{f}</li>)}
+            </ul>
+          </section>
+          <section>
+            <div className="mb-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Matched signals ({technique.matched.length})
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {technique.matched.map((k) => (
+                <span key={k} className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px]">
+                  {k.startsWith("actor:") ? `actor: ${k.slice(6)}` : `“${k}”`}
+                </span>
+              ))}
+            </div>
+          </section>
+          <section>
+            <div className="mb-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Source snippets from brief
+            </div>
+            {snippets.length === 0 ? (
+              <div className="rounded border border-dashed border-border p-2 text-xs text-muted-foreground">
+                No direct quotes located in the brief text.
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {snippets.map((s, i) => (
+                  <li key={i} className="rounded border border-border bg-background/60 p-2 text-xs leading-relaxed">
+                    <div className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      matched: “{s.keyword.replace(/^actor:/, "actor:")}”
+                    </div>
+                    {s.snippet}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+        <DialogFooter>
+          <a
+            href={technique.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] uppercase tracking-widest hover:bg-accent"
+          >
+            View on attack.mitre.org <ExternalLink size={10} />
+          </a>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
