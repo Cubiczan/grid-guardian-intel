@@ -276,7 +276,12 @@ function scopeToUS(query: string): string {
 
 type CensysHit = {
   ip?: string;
-  location?: { country?: string; province?: string; city?: string };
+  location?: {
+    country?: string;
+    province?: string;
+    city?: string;
+    coordinates?: { latitude?: number; longitude?: number };
+  };
   autonomous_system?: { name?: string };
   services?: Array<{
     port?: number;
@@ -312,6 +317,8 @@ function normalizeCensys(hits: CensysHit[]): OsintAsset[] {
       org: h.autonomous_system?.name ?? "Unknown operator",
       sector,
       province: h.location?.province,
+      lat: h.location?.coordinates?.latitude,
+      lon: h.location?.coordinates?.longitude,
     });
   }
   return out;
