@@ -10,33 +10,43 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AssetIpPortRouteImport } from './routes/asset.$ip.$port'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AssetIpPortRoute = AssetIpPortRouteImport.update({
+  id: '/asset/$ip/$port',
+  path: '/asset/$ip/$port',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/asset/$ip/$port': typeof AssetIpPortRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/asset/$ip/$port': typeof AssetIpPortRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/asset/$ip/$port': typeof AssetIpPortRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/asset/$ip/$port'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/asset/$ip/$port'
+  id: '__root__' | '/' | '/asset/$ip/$port'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AssetIpPortRoute: typeof AssetIpPortRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +58,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/asset/$ip/$port': {
+      id: '/asset/$ip/$port'
+      path: '/asset/$ip/$port'
+      fullPath: '/asset/$ip/$port'
+      preLoaderRoute: typeof AssetIpPortRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AssetIpPortRoute: AssetIpPortRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

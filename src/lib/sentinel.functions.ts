@@ -8,6 +8,7 @@ export type OsintAsset = {
   location: string;
   org: string;
   sector: string;
+  province?: string; // US state — used for the geo heatmap
 };
 
 const MOCK_ASSETS: OsintAsset[] = [
@@ -93,6 +94,7 @@ function normalizeCensys(hits: CensysHit[]): OsintAsset[] {
       location: loc,
       org: h.autonomous_system?.name ?? "Unknown operator",
       sector,
+      province: h.location?.province,
     });
   }
   return out;
@@ -240,6 +242,135 @@ export const analyzeAsset = createServerFn({ method: "POST" })
       sources: (tavily.results ?? []).map((r) => ({ url: r.url, title: r.title })),
       generatedAt: new Date().toISOString(),
     };
+  });
+
+// ─────────────────────────────────────────────────────────────
+// CISA KEV enrichment — cross-reference protocols with the
+// Known Exploited Vulnerabilities catalog.
+// ─────────────────────────────────────────────────────────────
+
+export type KevMatch = {
+  cveId: string;
+  vendor: string;
+  product: string;
+  shortDescription: string;
+  dateAdded: string;
+  dueDate?: string;
+};
+
+export type KevReport = Record<string, KevMatch[]>;
+
+const KEV_URL =
+  "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
+
+// Keyword sets per protocol — matched against KEV vendor/product/description.
+const PROTOCOL_KEV_KEYWORDS: Record<string, string[]> = {
+  Modbus: ["modbus"],
+  "Siemens S7": ["siemens", "simatic", "s7-", "s7 "],
+  "EtherNet/IP": ["rockwell", "allen-bradley", "allen bradley", "ethernet/ip"],
+  DNP3: ["dnp3", "dnp 3"],
+  "IEC-104": ["iec 60870", "iec-104", "iec104"],
+  "Niagara Fox": ["niagara", "tridium"],
+  BACnet: ["bacnet"],
+  "OMRON FINS": ["omron"],
+  "MELSEC-Q": ["mitsubishi electric", "melsec"],
+  PCWorx: ["phoenix contact", "pcworx"],
+  "Red Lion Crimson": ["red lion", "crimson"],
+};
+
+type KevRaw = {
+  vulnerabilities?: Array<{
+    cveID: string;
+    vendorProject: string;
+    product: string;
+    shortDescription: string;
+    dateAdded: string;
+    dueDate?: string;
+  }>;
+};
+
+let kevCache: { at: number; items: NonNullable<KevRaw["vulnerabilities"]> } | null = null;
+const KEV_TTL_MS = 6 * 60 * 60 * 1000;
+
+async function loadKev() {
+  if (kevCache && Date.now() - kevCache.at < KEV_TTL_MS) return kevCache.items;
+  const res = await fetch(KEV_URL);
+  if (!res.ok) throw new Error(`KEV fetch failed [${res.status}]`);
+  const json = (await res.json()) as KevRaw;
+  const items = json.vulnerabilities ?? [];
+  kevCache = { at: Date.now(), items };
+  return items;
+}
+
+export const getKevForProtocols = createServerFn({ method: "POST" })
+  .inputValidator((input: { protocols: string[] }) => input)
+  .handler(async ({ data }): Promise<KevReport> => {
+    const wanted = Array.from(new Set(data.protocols)).filter(Boolean);
+    if (!wanted.length) return {};
+    let items: NonNullable<KevRaw["vulnerabilities"]>;
+    try {
+      items = await loadKev();
+    } catch (err) {
+      console.error("KEV load failed", err);
+      return {};
+    }
+    const report: KevReport = {};
+    for (const proto of wanted) {
+      const keys = PROTOCOL_KEV_KEYWORDS[proto];
+      if (!keys) {
+        report[proto] = [];
+        continue;
+      }
+      const matches: KevMatch[] = [];
+      for (const v of items) {
+        const hay = `${v.vendorProject} ${v.product} ${v.shortDescription}`.toLowerCase();
+        if (keys.some((k) => hay.includes(k))) {
+          matches.push({
+            cveId: v.cveID,
+            vendor: v.vendorProject,
+            product: v.product,
+            shortDescription: v.shortDescription,
+            dateAdded: v.dateAdded,
+            dueDate: v.dueDate,
+          });
+        }
+      }
+      // Newest first, cap for UI sanity.
+      matches.sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
+      report[proto] = matches.slice(0, 25);
+    }
+    return report;
+  });
+
+// ─────────────────────────────────────────────────────────────
+// Webhook notifier — server-side POST proxy so browser CORS
+// restrictions on Slack / generic webhooks don't block delivery.
+// ─────────────────────────────────────────────────────────────
+
+export const sendWebhook = createServerFn({ method: "POST" })
+  .inputValidator(
+    (input: { url: string; payload: Record<string, unknown> }) => input,
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean; status: number; body?: string }> => {
+    try {
+      const u = new URL(data.url);
+      if (u.protocol !== "https:" && u.protocol !== "http:") {
+        return { ok: false, status: 0, body: "Only http(s) URLs are allowed" };
+      }
+    } catch {
+      return { ok: false, status: 0, body: "Invalid URL" };
+    }
+    try {
+      const res = await fetch(data.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data.payload),
+      });
+      const body = await res.text();
+      return { ok: res.ok, status: res.status, body: body.slice(0, 500) };
+    } catch (err) {
+      return { ok: false, status: 0, body: (err as Error).message };
+    }
   });
 
 // ─────────────────────────────────────────────────────────────
