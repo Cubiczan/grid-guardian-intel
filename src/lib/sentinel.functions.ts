@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { composeBriefFromSerp, serpApiNews, serpApiOrganic } from "./serpapi";
 
 export type OsintAsset = {
   id: string;
@@ -28,6 +29,8 @@ export type ThreatBrief = {
   sources: { url: string; title: string }[];
   generatedAt: string;
   attack: AttackMapping[];
+  /** Which live-data provider produced the brief: "serpapi" | "tavily" */
+  provider?: string;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -422,10 +425,44 @@ export const analyzeAsset = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<ThreatBrief> => {
     const asset = data.asset;
 
-    const apiKey = process.env.TAVILY_API_KEY;
-    if (!apiKey) throw new Error("Missing TAVILY_API_KEY");
-
     const query = `Active cyber threats, state-sponsored attacks, APT groups, or malware campaigns targeting ${asset.protocol} systems or ${asset.sector} infrastructure in ${asset.location} in the last 30 days. Include specific threat actor groups and recent CVEs.`;
+
+    // ── Primary: SerpApi structured live results ─────────────
+    // google_news for dated real-time headlines + google organic
+    // for actor/CVE depth; brief text is composed from attributed,
+    // citable snippets rather than a synthesized answer.
+    const [news, organic] = await Promise.all([
+      serpApiNews(query, 8),
+      serpApiOrganic(
+        `${asset.protocol} ${asset.sector} ICS SCADA vulnerability CVE APT advisory`,
+        5,
+      ),
+    ]);
+    const serpResults = [...news, ...organic].slice(0, 12);
+    if (serpResults.length) {
+      // de-dup by URL (news + organic can overlap)
+      const seen = new Set<string>();
+      const deduped = serpResults.filter((r) => {
+        if (seen.has(r.url)) return false;
+        seen.add(r.url);
+        return true;
+      });
+      const answer =
+        composeBriefFromSerp(deduped) || "No strategic intelligence found.";
+      return {
+        asset,
+        summary: answer,
+        priority: scorePriority(answer),
+        sources: deduped.map((r) => ({ url: r.url, title: r.title })),
+        generatedAt: new Date().toISOString(),
+        attack: extractAttack(answer),
+        provider: "serpapi",
+      };
+    }
+
+    // ── Fallback: Tavily synthesized answer ──────────────────
+    const apiKey = process.env.TAVILY_API_KEY;
+    if (!apiKey) throw new Error("Missing SERPAPI_API_KEY and TAVILY_API_KEY");
 
     const res = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -451,23 +488,27 @@ export const analyzeAsset = createServerFn({ method: "POST" })
     };
 
     const answer = (tavily.answer ?? "No strategic intelligence found.").toString();
-    const lower = answer.toLowerCase();
-    let priority: ThreatBrief["priority"] = "P3 - MONITOR";
-    if (/(apt|state-sponsored|sandworm|critical cve|zero-day|actively exploit)/.test(lower)) {
-      priority = "P1 - CRITICAL";
-    } else if (/(malware|vulnerability|cve-|ransomware|campaign)/.test(lower)) {
-      priority = "P2 - HIGH";
-    }
-
     return {
       asset,
       summary: answer,
-      priority,
+      priority: scorePriority(answer),
       sources: (tavily.results ?? []).map((r) => ({ url: r.url, title: r.title })),
       generatedAt: new Date().toISOString(),
       attack: extractAttack(answer),
+      provider: "tavily",
     };
   });
+
+function scorePriority(answer: string): ThreatBrief["priority"] {
+  const lower = answer.toLowerCase();
+  if (/(apt|state-sponsored|sandworm|critical cve|zero-day|actively exploit)/.test(lower)) {
+    return "P1 - CRITICAL";
+  }
+  if (/(malware|vulnerability|cve-|ransomware|campaign)/.test(lower)) {
+    return "P2 - HIGH";
+  }
+  return "P3 - MONITOR";
+}
 
 // ─────────────────────────────────────────────────────────────
 // CISA KEV enrichment — cross-reference protocols with the

@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { serpApiNews } from "./serpapi";
 
 // ─────────────────────────────────────────────────────────────
 // Geo situational-awareness feeds + Tavily radius news sweep.
@@ -319,7 +320,31 @@ async function loadAllFeeds(): Promise<{ events: GeoEvent[]; errors: string[] }>
   return { events: [...g.events, ...f.events, ...u.events, ...n.events], errors };
 }
 
-// ─── Tavily radius news sweep ───────────────────────────────
+// ─── SerpApi radius news sweep (primary) ────────────────────
+async function serpApiRadiusNews(
+  where: string,
+  radiusKm: number,
+): Promise<{ items: ProximityFeed["news"]; error?: string }> {
+  const query =
+    `${where} infrastructure incident last 14 days: wildfire, flood, ` +
+    `power outage, cyber intrusion, pipeline or rail disruption, ` +
+    `evacuation, or civil unrest`;
+  try {
+    const results = await serpApiNews(query, 8);
+    return {
+      items: results.map((r) => ({
+        title: r.title,
+        url: r.url,
+        snippet: (r.snippet ?? "").slice(0, 400),
+        publishedAt: r.date,
+      })),
+    };
+  } catch (err) {
+    return { items: [], error: (err as Error).message };
+  }
+}
+
+// ─── Tavily radius news sweep (fallback) ────────────────────
 async function tavilyRadiusNews(
   where: string,
   radiusKm: number,
@@ -412,9 +437,16 @@ export const getProximityFeed = createServerFn({ method: "POST" })
     let news: ProximityFeed["news"] = [];
     if (data.includeNews !== false) {
       const where = data.location?.trim() || (center ? `${center.lat.toFixed(2)},${center.lon.toFixed(2)}` : "United States critical infrastructure");
-      const nres = await tavilyRadiusNews(where, radiusKm);
-      news = nres.items;
-      if (nres.error) errors.push(nres.error);
+      // SerpApi structured news is the primary sweep; Tavily only if it
+      // came back empty (or no key configured).
+      const serp = await serpApiRadiusNews(where, radiusKm);
+      if (serp.items.length) {
+        news = serp.items;
+      } else {
+        const nres = await tavilyRadiusNews(where, radiusKm);
+        news = nres.items;
+        if (nres.error) errors.push(nres.error);
+      }
     }
 
     return {

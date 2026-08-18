@@ -1,10 +1,11 @@
 # Sentinel-OSINT
 
 **Cyber-Physical Threat Matrix for US critical infrastructure.**
-Sentinel-OSINT fuses exposed-asset discovery (Censys) with AI threat
-contextualization (Tavily), MITRE ATT&CK mapping, CISA KEV enrichment,
-and geo situational-awareness feeds (GDACS, NASA FIRMS, USGS, NOAA CAP)
-into a single SOC-ready dossier per asset.
+Sentinel-OSINT fuses exposed-asset discovery (Censys) with structured
+real-time web intelligence (SerpApi), AI threat contextualization (Tavily
+fallback), MITRE ATT&CK mapping, CISA KEV enrichment, and geo
+situational-awareness feeds (GDACS, NASA FIRMS, USGS, NOAA CAP) into a
+single SOC-ready dossier per asset.
 
 > "We don't just alert the operator - we turn a raw data point into
 > actionable national security intelligence."
@@ -30,16 +31,18 @@ into a single SOC-ready dossier per asset.
   (Modbus, Siemens S7, DNP3, EtherNet/IP, IEC-104, BACnet, ...) scoped
   to `location.country_code: US`, with cursor pagination. Falls back to
   a mock feed when no key is present.
-- **Analyze** - Per-asset Tavily *advanced* search generates a strategic
-  brief with a P1-P3 priority score, sources, MITRE ATT&CK technique
-  mapping (with confidence + rationale + evidence snippets), and CISA
-  KEV / NVD cross-references.
+- **Analyze** - Per-asset SerpApi structured search (primary) composes a
+  strategic brief from dated, cited headlines and organic SERP results;
+  Tavily advanced search serves as fallback. Each brief carries a P1-P3
+  priority score, sources, MITRE ATT&CK technique mapping (confidence +
+  rationale + evidence snippets), and CISA KEV / NVD cross-references.
 - **Geo-fuse** - A cached `GeoEvent` store aggregates:
   - **GDACS** - global disasters (wildfires, floods, storms, quakes)
   - **NASA FIRMS** - VIIRS SNPP NRT active-fire pixels, severity from FRP
   - **USGS** - earthquakes >= M4.5, past 7 days
   - **NOAA CAP** - active US weather alerts (polygon centroids)
-  - **Tavily radius news sweep** - locale-scoped incident news
+  - **SerpApi news sweep** (primary) - locale-scoped, dated headlines
+  - **Tavily radius news sweep** (fallback) - locale-scoped incident news
 
   Each brief shows nearby events with haversine distance + compass
   bearing, so an Ontario wildfire correctly registers as a cross-border
@@ -58,7 +61,7 @@ into a single SOC-ready dossier per asset.
 - **Data** - TanStack Query, `createServerFn` RPC, in-worker caches
 - **UI** - Tailwind v4, shadcn primitives, lucide-react
 - **Map** - mapbox-gl (public token via Lovable Mapbox connector)
-- **Intel** - Tavily Search API, Censys Platform API v3
+- **Intel** - SerpApi (google_news + google organic), Tavily Search API, Censys Platform API v3
 - **Geo feeds** - GDACS, NASA FIRMS, USGS, NOAA (`api.weather.gov`)
 - **Frameworks** - MITRE ATT&CK (ICS + Enterprise), CISA KEV, NVD
 
@@ -72,14 +75,16 @@ into a single SOC-ready dossier per asset.
                                             analyzeAsset
                                             + ATT&CK map
                                             + KEV / NVD
-                                            + Tavily fusion
+                                            + SerpApi fusion (primary)
+                                            + Tavily fusion (fallback)
                                                     |
                                                     v
                                             getProximityFeed  <--  GDACS
                                             (cached 15m)      <--  FIRMS
                                                               <--  USGS
                                                               <--  NOAA
-                                                              <--  Tavily
+                                                              <--  SerpApi news (primary)
+                                                              <--  Tavily news (fallback)
                                                     |
                                                     v
                                             SOC Dossier
@@ -92,7 +97,15 @@ Secrets live in Lovable Cloud (server-only, injected at runtime):
 
 | Name                    | Purpose                                      | Required |
 |-------------------------|----------------------------------------------|----------|
-| `TAVILY_API_KEY`        | Tavily advanced search (briefs + news sweep) | Yes      |
+| `SERPAPI_API_KEY`       | SerpApi google_news + google organic (briefs) | Yes*     |
+| `TAVILY_API_KEY`        | Tavily advanced search (briefs + news sweep) | Yes**    |
+| `CENSYS_API_KEY`        | Censys Platform API v3                       | No (mock fallback) |
+| `FIRMS_MAP_KEY`         | NASA FIRMS active-fire CSV feed              | No (skips feed)    |
+| `LOVABLE_API_KEY`       | Lovable connector gateway auth               | Auto     |
+| `MAPBOX_API_KEY`        | Mapbox gateway (server-side)                 | Auto (connector)   |
+
+*\* SerpApi is the primary live-data provider; if present, briefs use structured, dated, cited SerpApi results.\
+*\*\* Tavily serves as fallback when SerpApi is absent or returns empty. At least one of the two keys is required.
 | `CENSYS_API_KEY`        | Censys Platform API v3                       | No (mock fallback) |
 | `FIRMS_MAP_KEY`         | NASA FIRMS active-fire CSV feed              | No (skips feed)    |
 | `LOVABLE_API_KEY`       | Lovable connector gateway auth               | Auto     |

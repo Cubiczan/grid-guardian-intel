@@ -136,6 +136,11 @@ function SharedBrief() {
                 {brief.priority}
               </span>
               <span className="text-xs text-muted-foreground">
+                {brief.provider === "serpapi" && (
+                  <span className="mr-2 rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                    live · SerpApi
+                  </span>
+                )}
                 {new Date(brief.generatedAt).toLocaleString()}
               </span>
             </div>

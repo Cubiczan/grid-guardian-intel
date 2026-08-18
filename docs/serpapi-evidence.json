@@ -1,0 +1,114 @@
+{
+  "timestamp": "2026-08-18T00:23:26.197Z",
+  "provider": "serpapi",
+  "asset": {
+    "protocol": "Modbus",
+    "sector": "Energy",
+    "location": "Houston, Texas"
+  },
+  "query": {
+    "news": "Modbus SCADA cyber attack ICS critical infrastructure",
+    "organic": "Modbus Energy ICS SCADA vulnerability CVE APT advisory"
+  },
+  "newsCount": 16,
+  "organicCount": 9,
+  "totalSources": 25,
+  "priority": "P3-MONITOR",
+  "brief": "• Censys warns systemic exposure of Rockwell PLCs enable Iran-linked targeting of critical infrastructure OT networks (04/09/2026, 07:00 AM, +0000 UTC) [Industrial Cyber]\n• Internet-exposed Modbus ICS devices threaten critical infrastructure (04/09/2026, 07:00 AM, +0000 UTC) [SC Media]\n• Industry Reactions to Iran Hacking ICS in Critical Infrastructure: Feedback Friday (04/10/2026, 07:00 AM, +0000 UTC) [SecurityWeek]\n• Internet-Exposed ICS Devices Raise Alarm for Critical Sectors (04/09/2026, 07:00 AM, +0000 UTC) [Security Affairs]\n• A safer way to break industrial systems (on purpose) (10/15/2025, 07:00 AM, +0000 UTC) [Help Net Security]\n• CISA reports critical ICS vulnerabilities across Mitsubishi, Schneider, Delta, GE Vernova, Hitachi Energy systems (09/02/2025, 07:00 AM, +0000 UTC) [Industrial Cyber]\n• Hacktivists in Palestine and Israel after SCADA and other industrial control systems (10/09/2023, 07:00 AM, +0000 UTC) [Cybernews]\n• Over 145,000 Industrial Control Systems Across 175 Countries Found Exposed Online (11/21/2024, 08:00 AM, +0000 UTC) [The Hacker News]",
+  "sources": [
+    {
+      "title": "Censys warns systemic exposure of Rockwell PLCs enable Iran-linked targeting of critical infrastructure OT networks",
+      "url": "https://industrialcyber.co/industrial-cyber-attacks/censys-warns-systemic-exposure-of-rockwell-plcs-enable-iran-linked-targeting-of-critical-infrastructure-ot-networks/",
+      "source": "Industrial Cyber",
+      "date": "04/09/2026, 07:00 AM, +0000 UTC"
+    },
+    {
+      "title": "Internet-exposed Modbus ICS devices threaten critical infrastructure",
+      "url": "https://www.scworld.com/brief/internet-exposed-modbus-ics-devices-threaten-critical-infrastructure",
+      "source": "SC Media",
+      "date": "04/09/2026, 07:00 AM, +0000 UTC"
+    },
+    {
+      "title": "Industry Reactions to Iran Hacking ICS in Critical Infrastructure: Feedback Friday",
+      "url": "https://www.securityweek.com/industry-reactions-to-iran-hacking-ics-in-critical-infrastructure-feedback-friday/",
+      "source": "SecurityWeek",
+      "date": "04/10/2026, 07:00 AM, +0000 UTC"
+    },
+    {
+      "title": "Internet-Exposed ICS Devices Raise Alarm for Critical Sectors",
+      "url": "https://securityaffairs.com/190525/ics-scada/internet-exposed-ics-devices-raise-alarm-for-critical-sectors.html",
+      "source": "Security Affairs",
+      "date": "04/09/2026, 07:00 AM, +0000 UTC"
+    },
+    {
+      "title": "A safer way to break industrial systems (on purpose)",
+      "url": "https://www.helpnetsecurity.com/2025/10/15/industrial-control-system-simulation-cybersecurity/",
+      "source": "Help Net Security",
+      "date": "10/15/2025, 07:00 AM, +0000 UTC"
+    },
+    {
+      "title": "CISA reports critical ICS vulnerabilities across Mitsubishi, Schneider, Delta, GE Vernova, Hitachi Energy systems",
+      "url": "https://industrialcyber.co/cisa/cisa-reports-critical-ics-vulnerabilities-across-mitsubishi-schneider-delta-ge-vernova-hitachi-energy-systems/",
+      "source": "Industrial Cyber",
+      "date": "09/02/2025, 07:00 AM, +0000 UTC"
+    },
+    {
+      "title": "Hacktivists in Palestine and Israel after SCADA and other industrial control systems",
+      "url": "https://cybernews.com/cyber-war/palestine-israel-scada-under-attack/",
+      "source": "Cybernews",
+      "date": "10/09/2023, 07:00 AM, +0000 UTC"
+    },
+    {
+      "title": "Over 145,000 Industrial Control Systems Across 175 Countries Found Exposed Online",
+      "url": "https://thehackernews.com/2024/11/over-145000-industrial-control-systems.html",
+      "source": "The Hacker News",
+      "date": "11/21/2024, 08:00 AM, +0000 UTC"
+    },
+    {
+      "title": "Asset Discovery in the ICS/OT domains: Challenges and Opportunities",
+      "url": "https://www.recordedfuture.com/blog/asset-discovery-ics-ot-domains-challenges-opportunities",
+      "source": "Recorded Future",
+      "date": "01/12/2023, 08:00 AM, +0000 UTC"
+    },
+    {
+      "title": "A Threat Actor Landscape Assessment of ICS/OT Targeting in the 2026 Iran-US Conflict AND THE SCALE OF THE RISK",
+      "url": "https://www.cloudsek.com/blog/a-threat-actor-landscape-assessment-of-ics-ot-targeting-in-the-2026-iran-us-conflict-and-the-scale-of-the-risk",
+      "source": "CloudSEK",
+      "date": "03/05/2026, 03:06 PM, +0000 UTC"
+    },
+    {
+      "title": "FrostyGoop ICS Malware Left Ukrainian City’s Residents Without Heating",
+      "url": "https://www.securityweek.com/frostygoop-ics-malware-left-ukrainian-citys-residents-without-heating/",
+      "source": "SecurityWeek",
+      "date": "07/23/2024, 07:00 AM, +0000 UTC"
+    },
+    {
+      "title": "How a fake ICS network can reveal real cyberattacks",
+      "url": "https://www.helpnetsecurity.com/2025/09/17/icslure-ics-threat-detection/",
+      "source": "Help Net Security",
+      "date": "09/17/2025, 07:00 AM, +0000 UTC"
+    }
+  ],
+  "radiusSweep": {
+    "query": "Houston Texas infrastructure incident last 14 days",
+    "count": 5,
+    "results": [
+      {
+        "title": "Map Shows States Hit By Cyberattacks on Water Systems",
+        "url": "https://www.newsweek.com/map-shows-states-hit-by-cyberattacks-water-systems-12274817"
+      },
+      {
+        "title": "Houston suburb says some online services taken down by cyberattack",
+        "url": "https://therecord.media/houston-suburb-cyberattack-services"
+      },
+      {
+        "title": "Cyberattack hits Houston suburb",
+        "url": "https://www.scworld.com/brief/cyberattack-hits-houston-suburb"
+      },
+      {
+        "title": "Missile Attack Kills at Least 3 in West Bank",
+        "url": "https://www.nytimes.com/live/2026/03/18/world/iran-war-news-trump-oil"
+      }
+    ]
+  }
+}
